@@ -44,7 +44,7 @@ async function startServer() {
   });
 
   // API Endpoint: Quickly Validate Form/Document Type from low-resolution thumbnail (Tiered Processing)
-  app.post("/api/validate-form-type", async (req: express.Request, res: express.Response): Promise<void> => {
+  app.post(["/api/validate-form-type", "/api/validate-form-type/"], async (req: express.Request, res: express.Response): Promise<void> => {
     try {
       const { image, mimeType, serviceType } = req.body;
 
@@ -144,7 +144,7 @@ You must respond in the specified JSON schema.`;
   });
 
   // API Endpoint: Analyze Document/Form using Gemini 3.5 Flash
-  app.post("/api/analyze-form", async (req: express.Request, res: express.Response): Promise<void> => {
+  app.post(["/api/analyze-form", "/api/analyze-form/"], async (req: express.Request, res: express.Response): Promise<void> => {
     try {
       const { image, mimeType, serviceType } = req.body;
 
@@ -309,7 +309,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
   });
 
   // API Endpoint: Document Q&A Chat
-  app.post("/api/chat-document", async (req: express.Request, res: express.Response): Promise<void> => {
+  app.post(["/api/chat-document", "/api/chat-document/"], async (req: express.Request, res: express.Response): Promise<void> => {
     try {
       const { image, mimeType, serviceType, message, history } = req.body;
 
@@ -385,6 +385,14 @@ When answering:
         details: error.message || error
       });
     }
+  });
+
+  // Catch-all for any other API routes to prevent falling back to HTML (SPA routing)
+  app.all("/api/*", (req: express.Request, res: express.Response) => {
+    res.status(404).json({
+      error: `API route not found or method not allowed: ${req.method} ${req.path}`,
+      details: "Please verify that the request method is POST and that the URL path is exactly correct."
+    });
   });
 
   // Vite development server middleware setup

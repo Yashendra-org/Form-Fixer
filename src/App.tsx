@@ -631,7 +631,12 @@ export default function App() {
         throw new Error(errMessage);
       }
 
-      const preCheckResult = await preCheckResponse.json();
+      let preCheckResult;
+      try {
+        preCheckResult = await preCheckResponse.json();
+      } catch (e) {
+        throw new Error("Failed to parse pre-validation response. The server may have returned an unexpected HTML response. Please verify that your server is running and that your GEMINI_API_KEY is configured.");
+      }
 
       // If validation fails, abort full OCR run immediately and show result gracefully
       if (!preCheckResult.isValid) {
@@ -685,7 +690,12 @@ export default function App() {
         throw new Error(errMessage);
       }
 
-      const result: FormAnalysis = await response.json();
+      let result: FormAnalysis;
+      try {
+        result = await response.json();
+      } catch (e) {
+        throw new Error("Failed to parse verification response. The server may have returned an unexpected HTML response. Please verify that your GEMINI_API_KEY is configured and that you have not exceeded your Gemini API quota.");
+      }
       setAnalysisResult(result);
       addToHistory(serviceId, imageSrc, imageMime, result);
     } catch (error: any) {
