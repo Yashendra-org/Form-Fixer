@@ -1,0 +1,6 @@
+{
+  "name": "Form-Fixer",
+  "description": "An AI-powered civic assistant for citizens of India/Bharat to verify government forms and identity documents for completeness, missing signatures, and compliance while redacting sensitive personal data.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
