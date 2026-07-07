@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>My Google AI Studio App</title>
+    <script>
+      // Suppress benign Vite dev server WebSocket connection rejections
+      window.addEventListener('unhandledrejection', function(event) {
+        const reasonStr = event.reason ? (event.reason.message || event.reason.toString() || '') : '';
+        if (reasonStr.includes('WebSocket') || reasonStr.includes('websocket') || reasonStr.includes('HMR') || event.reason === 'WebSocket closed without opened.') {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }, true);
+      window.addEventListener('error', function(event) {
+        const msg = event.message || '';
+        if (msg.includes('WebSocket') || msg.includes('websocket') || msg.includes('HMR')) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }, true);
+    </script>
   </head>
   <body>
     <div id="root"></div>
