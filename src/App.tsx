@@ -38,6 +38,13 @@ import {
   Trash2
 } from 'lucide-react';
 
+import {
+  generateContentClient,
+  chatWithDocumentClient,
+  validateFormTypeSchema,
+  analyzeFormSchema
+} from './geminiClient';
+
 // --- TS Interfaces ---
 interface DetectedField {
   name: string;
@@ -328,12 +335,37 @@ export default function App() {
         })
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || errData.details || 'Failed to get answer.');
+      let data;
+
+      if (response.status === 404) {
+        console.warn("Express backend route /api/chat-document returned 404. Falling back to direct client-side Gemini chat.");
+        const systemInstruction = `You are "Form-Fixer AI", an expert Indian civic guide and document assistant.
+The user is asking questions about an uploaded form/document for the government service "${serviceName}".
+You must help them correct their document, explain civic rules (like UIDAI Aadhaar guidelines, RTO vehicle classes, Ministry of External Affairs passport requirements), and guide them through filling forms, signature requirements, official seals, or proof documents.
+
+When answering:
+1. Always maintain a highly supportive, friendly, and empowering tone.
+2. Answer in the same language the user asks (e.g., if they ask in Hindi/Hinglish, answer in Hindi/Hinglish; if English, answer in English).
+3. Do not output any real sensitive numbers from the document (like 12-digit Aadhaar numbers or 10-char PAN numbers). Mask them if you refer to them.
+4. Give specific, precise advice based on the selected service guidelines. If they ask where to sign, point them to the designated signature boxes.
+5. Keep answers highly readable, scannable, and clear. Use standard Markdown for bullet points and bolding.`;
+        
+        const chatText = await chatWithDocumentClient(
+          uploadedImage,
+          mimeType || 'image/jpeg',
+          systemInstruction,
+          userMsg,
+          history
+        );
+        data = { text: chatText };
+      } else {
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.error || errData.details || 'Failed to get answer.');
+        }
+        data = await response.json();
       }
 
-      const data = await response.json();
       setChatMessages([
         ...newMessages,
         { role: 'assistant', text: data.text, timestamp: new Date() }
@@ -642,23 +674,44 @@ export default function App() {
         })
       });
 
-      if (!preCheckResponse.ok) {
-        let errMessage = 'Pre-validation check failed.';
-        try {
-          const text = await preCheckResponse.text();
-          const errData = JSON.parse(text);
-          errMessage = errData.error || errData.details || errMessage;
-        } catch (e) {
-          errMessage = `Server error (${preCheckResponse.status}): Please check if your Gemini API key is configured.`;
-        }
-        throw new Error(errMessage);
-      }
-
       let preCheckResult;
-      try {
-        preCheckResult = await preCheckResponse.json();
-      } catch (e) {
-        throw new Error("Failed to parse pre-validation response. The server may have returned an unexpected HTML response. Please verify that your server is running and that your GEMINI_API_KEY is configured.");
+
+      if (preCheckResponse.status === 404) {
+        console.warn("Express backend route /api/validate-form-type returned 404. Falling back to direct client-side Gemini validation.");
+        const systemInstruction = `You are "Form-Fixer Validator", a high-performance document classifier.
+Analyze the provided low-resolution thumbnail image and determine if the document matches or is valid for the user's selected government service: "${serviceLabel}".
+
+Evaluation criteria:
+- Return isValid as true if the document type matches or is a plausible/acceptable form/document for the requested service (e.g., passport page/form for passport, Aadhaar card/enrollment form for Aadhaar, etc.).
+- Return isValid as false if the uploaded image is a completely different document (e.g. uploading a birth certificate when "PAN Card Application" was chosen), or if it's a completely non-document photo (e.g. scenic landscape, random selfie, animal, object, food, or totally blank/corrupted image).
+
+You must respond in the specified JSON schema.`;
+        const resultText = await generateContentClient(
+          thumbnailBase64,
+          imageMime,
+          systemInstruction,
+          `Pre-validate if this thumbnail is a valid document/form for "${serviceLabel}".`,
+          validateFormTypeSchema
+        );
+        preCheckResult = JSON.parse(resultText);
+      } else {
+        if (!preCheckResponse.ok) {
+          let errMessage = 'Pre-validation check failed.';
+          try {
+            const text = await preCheckResponse.text();
+            const errData = JSON.parse(text);
+            errMessage = errData.error || errData.details || errMessage;
+          } catch (e) {
+            errMessage = `Server error (${preCheckResponse.status}): Please check if your Gemini API key is configured.`;
+          }
+          throw new Error(errMessage);
+        }
+
+        try {
+          preCheckResult = await preCheckResponse.json();
+        } catch (e) {
+          throw new Error("Failed to parse pre-validation response. The server may have returned an unexpected HTML response. Please verify that your server is running and that your GEMINI_API_KEY is configured.");
+        }
       }
 
       // If validation fails, abort full OCR run immediately and show result gracefully
@@ -701,23 +754,59 @@ export default function App() {
         })
       });
 
-      if (!response.ok) {
-        let errMessage = 'Analysis request failed.';
-        try {
-          const text = await response.text();
-          const errData = JSON.parse(text);
-          errMessage = errData.error || errData.details || errMessage;
-        } catch (e) {
-          errMessage = `Server error (${response.status}): Failed to analyze document.`;
-        }
-        throw new Error(errMessage);
-      }
-
       let result: FormAnalysis;
-      try {
-        result = await response.json();
-      } catch (e) {
-        throw new Error("Failed to parse verification response. The server may have returned an unexpected HTML response. Please verify that your GEMINI_API_KEY is configured and that you have not exceeded your Gemini API quota.");
+
+      if (response.status === 404) {
+        console.warn("Express backend route /api/analyze-form returned 404. Falling back to direct client-side Gemini analysis.");
+        const systemInstruction = `You are "Form-Fixer", an expert civic assistant and document validator designed to help citizens of India/Bharat successfully apply for government services.
+Your role is to analyze images of uploaded government forms or supporting identity documents (e.g., Aadhaar Card, PAN Card, Driving License, Passport, Ration Card).
+
+You must evaluate the document image against the rules for the selected government service: "${serviceLabel}".
+
+Follow these strict visual inspection rules:
+1. Identify the document type in the image. Check if it matches the selected service or if it is a completely wrong document (e.g. uploading a utility bill or ration card for driving license). If it is a completely incorrect or unrelated document type, set documentStatus to "INVALID_DOCUMENT".
+2. Check for completeness of the form or document:
+   - Are essential fields blank? (e.g., Address, Date of Birth, Name, Father's Name, Signature block)
+   - Is a signature or thumbprint missing in the designated signature box/line?
+   - Is the user photo missing, blurred, or obscured?
+   - For identity cards (Aadhaar, PAN), check if the layout is correct and details look valid.
+3. CRITICAL DATA PRIVACY RULE: You must detect sensitive numbers (like 12-digit Aadhaar card numbers, 10-character PAN numbers, bank account numbers, or full phone numbers).
+   - You MUST redact them in your analysis! Do not output any real sensitive numbers in full.
+   - For any detected sensitive data, mask it (e.g., "XXXX-XXXX-1234" for Aadhaar, or "XXXXX5432X" for PAN).
+   - Log this in the "redactedData" list of your JSON response to prove to the user that their data was successfully masked and protected for safety.
+4. Formulate actionable steps:
+   - Provide clear, supportive, and polite instructions on how to correct any issues.
+   - You MUST write these instructions in both English (titleEn, descriptionEn) and Hindi (titleHi, descriptionHi) to ensure maximum accessibility for Indian citizens.
+5. Provide a warm, encouraging closing message in both languages (encouragementEn and encouragementHi). Always maintain a helpful, welcoming civic service tone.
+
+Ensure the final output is 100% compliant with the provided JSON response schema.`;
+
+        const resultText = await generateContentClient(
+          imageSrc,
+          imageMime,
+          systemInstruction,
+          `Analyze this uploaded document/form for the government service "${serviceLabel}". Please review it carefully, perform validation, redact sensitive credentials, and produce the detailed analysis.`,
+          analyzeFormSchema
+        );
+        result = JSON.parse(resultText);
+      } else {
+        if (!response.ok) {
+          let errMessage = 'Analysis request failed.';
+          try {
+            const text = await response.text();
+            const errData = JSON.parse(text);
+            errMessage = errData.error || errData.details || errMessage;
+          } catch (e) {
+            errMessage = `Server error (${response.status}): Failed to analyze document.`;
+          }
+          throw new Error(errMessage);
+        }
+
+        try {
+          result = await response.json();
+        } catch (e) {
+          throw new Error("Failed to parse verification response. The server may have returned an unexpected HTML response. Please verify that your GEMINI_API_KEY is configured and that you have not exceeded your Gemini API quota.");
+        }
       }
       setAnalysisResult(result);
       addToHistory(serviceId, imageSrc, imageMime, result);
@@ -1155,7 +1244,11 @@ export default function App() {
                   <FileText className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
                   <div className="truncate">
                     <div className="font-bold text-sm text-natural-dark">
-                      {SERVICES.find(s => s.id === selectedService)?.name}
+                      {SERVICES.find(s => s.id === selectedService) ? (
+                        languageMode === 'hindi'
+                          ? SERVICES.find(s => s.id === selectedService)?.nameHi
+                          : SERVICES.find(s => s.id === selectedService)?.name
+                      ) : selectedService}
                     </div>
                     <div className="text-[10px] text-accent font-mono mt-0.5 uppercase tracking-wide">
                       {SERVICES.find(s => s.id === selectedService)?.dept}
@@ -1208,7 +1301,9 @@ export default function App() {
                           }`}
                         >
                           <div className="min-w-0">
-                            <div className="font-semibold text-natural-dark truncate">{srv.name}</div>
+                            <div className="font-semibold text-natural-dark truncate">
+                              {languageMode === 'hindi' ? srv.nameHi : srv.name}
+                            </div>
                             <div className="text-[10px] text-accent font-mono mt-0.5 truncate">{srv.dept}</div>
                           </div>
                           {selectedService === srv.id ? (
@@ -1220,7 +1315,7 @@ export default function App() {
                       ))
                     ) : (
                       <div className="p-4 text-center text-xs text-accent italic">
-                        No government services found for "{serviceSearchQuery}"
+                        {languageMode === 'hindi' ? `"${serviceSearchQuery}" के लिए कोई सरकारी सेवा नहीं मिली` : `No government services found for "${serviceSearchQuery}"`}
                       </div>
                     )}
                   </div>
@@ -1649,10 +1744,16 @@ export default function App() {
                         {mimeType ? mimeType.replace('image/', '') : 'JPEG'} Image
                       </span>
                       <h4 className="text-sm font-serif font-semibold text-natural-dark mt-1.5">
-                        Selected Document Target
+                        {languageMode === 'hindi' ? 'चयनित दस्तावेज़ लक्ष्य' : 'Selected Document Target'}
                       </h4>
                       <p className="text-xs text-accent">
-                        Analyzing for: <strong className="text-primary font-semibold">{SERVICES.find(s => s.id === selectedService)?.name}</strong>
+                        {languageMode === 'hindi' ? 'विश्लेषण लक्ष्य:' : 'Analyzing for:'} <strong className="text-primary font-semibold">
+                          {SERVICES.find(s => s.id === selectedService) ? (
+                            languageMode === 'hindi'
+                              ? SERVICES.find(s => s.id === selectedService)?.nameHi
+                              : SERVICES.find(s => s.id === selectedService)?.name
+                          ) : selectedService}
+                        </strong>
                       </p>
                     </div>
 
