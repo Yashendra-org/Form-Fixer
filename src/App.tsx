@@ -5,6 +5,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { jsPDF } from 'jspdf';
 import {
   FileText,
   Upload,
@@ -20,7 +21,21 @@ import {
   Info,
   BadgeAlert,
   Camera,
-  Video
+  Video,
+  Search,
+  Check,
+  ChevronDown,
+  FileDown,
+  Volume2,
+  VolumeX,
+  MessageSquare,
+  Send,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  CornerDownLeft,
+  X,
+  Trash2
 } from 'lucide-react';
 
 // --- TS Interfaces ---
@@ -61,7 +76,14 @@ const SERVICES = [
   { id: 'driving_license', name: 'Driving License (Form 4)', nameHi: 'ड्राइविंग लाइसेंस (फॉर्म 4)', dept: 'Ministry of Road Transport' },
   { id: 'pan_card', name: 'PAN Card (Form 49A) Application', nameHi: 'पैन कार्ड (फॉर्म 49ए) आवेदन', dept: 'Income Tax Department' },
   { id: 'passport', name: 'Passport Application (Form 1)', nameHi: 'पासपोर्ट आवेदन (फॉर्म 1)', dept: 'Ministry of External Affairs' },
-  { id: 'ration_card', name: 'Ration Card Application', nameHi: 'राशन कार्ड आवेदन', dept: 'Food & Civil Supplies' }
+  { id: 'ration_card', name: 'Ration Card Application', nameHi: 'राशन कार्ड आवेदन', dept: 'Food & Civil Supplies' },
+  { id: 'voter_id', name: 'Voter ID Application (Form 6)', nameHi: 'मतदाता पहचान पत्र (फॉर्म 6)', dept: 'Election Commission of India' },
+  { id: 'birth_certificate', name: 'Birth Certificate Application', nameHi: 'जन्म प्रमाण पत्र आवेदन', dept: 'Civil Registration System' },
+  { id: 'caste_certificate', name: 'Caste Certificate Application', nameHi: 'जाति प्रमाण पत्र आवेदन', dept: 'Revenue Department' },
+  { id: 'income_certificate', name: 'Income Certificate Application', nameHi: 'आय प्रमाण पत्र आवेदन', dept: 'Revenue Department' },
+  { id: 'marriage_certificate', name: 'Marriage Registration (Form A)', nameHi: 'विवाह पंजीकरण (फॉर्म ए)', dept: 'Registrar of Marriages' },
+  { id: 'pm_kisan', name: 'PM Kisan Samman Nidhi Application', nameHi: 'पीएम किसान सम्मान निधि आवेदन', dept: 'Ministry of Agriculture' },
+  { id: 'ayushman_card', name: 'Ayushman Bharat Golden Card Registration', nameHi: 'आयुष्मान भारत कार्ड आवेदन', dept: 'National Health Authority' }
 ];
 
 // --- Encouragement loading messages shown during vision analysis ---
@@ -80,6 +102,8 @@ const LOADING_MESSAGES = [
 
 export default function App() {
   const [selectedService, setSelectedService] = useState<string>('aadhaar');
+  const [serviceSearchQuery, setServiceSearchQuery] = useState<string>('');
+  const [isServiceDropdownOpen, setIsServiceDropdownOpen] = useState<boolean>(false);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
@@ -88,6 +112,142 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [languageMode, setLanguageMode] = useState<'bilingual' | 'english' | 'hindi'>('bilingual');
+
+  // --- New Premium Feature States ---
+  // 1. Image Preview & Interactive Modal States
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState<boolean>(false);
+  const [previewScale, setPreviewScale] = useState<number>(1);
+  const [previewRotation, setPreviewRotation] = useState<number>(0);
+
+  // 2. Bhasini-Compliant Speech Synthesis States
+  const [playingSpeechIdx, setPlayingSpeechIdx] = useState<number | null>(null);
+  const [isPlayingEncouragement, setIsPlayingEncouragement] = useState<boolean>(false);
+
+  // 3. Document Q&A Chat Assistant States
+  interface ChatMessage {
+    role: 'user' | 'assistant';
+    text: string;
+    timestamp: Date;
+  }
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState<string>('');
+  const [isSendingChat, setIsSendingChat] = useState<boolean>(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+
+  // Speech TTS Player function
+  const handleSpeak = (text: string, idx: number | 'encouragement', lang: 'en' | 'hi') => {
+    try {
+      if (playingSpeechIdx === idx || (idx === 'encouragement' && isPlayingEncouragement)) {
+        window.speechSynthesis.cancel();
+        setPlayingSpeechIdx(null);
+        setIsPlayingEncouragement(false);
+        return;
+      }
+
+      window.speechSynthesis.cancel();
+      // Remove special characters for pristine voice translation
+      const cleanedText = text.replace(/[\[\]\(\)\-\:\*\_]/g, ' ');
+      const utterance = new SpeechSynthesisUtterance(cleanedText);
+      utterance.lang = lang === 'hi' ? 'hi-IN' : 'en-IN';
+
+      utterance.onend = () => {
+        if (idx === 'encouragement') {
+          setIsPlayingEncouragement(false);
+        } else {
+          setPlayingSpeechIdx(null);
+        }
+      };
+
+      utterance.onerror = () => {
+        if (idx === 'encouragement') {
+          setIsPlayingEncouragement(false);
+        } else {
+          setPlayingSpeechIdx(null);
+        }
+      };
+
+      if (idx === 'encouragement') {
+        setIsPlayingEncouragement(true);
+      } else {
+        setPlayingSpeechIdx(idx);
+      }
+
+      const voices = window.speechSynthesis.getVoices();
+      if (lang === 'hi') {
+        const hiVoice = voices.find(v => v.lang.startsWith('hi') || v.lang.includes('IN'));
+        if (hiVoice) utterance.voice = hiVoice;
+      } else {
+        const enVoice = voices.find(v => v.lang.startsWith('en') && v.lang.includes('IN'));
+        if (enVoice) utterance.voice = enVoice;
+      }
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error('Speech synthesis failed:', e);
+    }
+  };
+
+  // Q&A Chat submit handler
+  const handleSendChatMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!chatInput.trim() || !uploadedImage) return;
+
+    const userMsg = chatInput.trim();
+    setChatInput('');
+    setChatError(null);
+    
+    const newMessages: ChatMessage[] = [
+      ...chatMessages,
+      { role: 'user', text: userMsg, timestamp: new Date() }
+    ];
+    setChatMessages(newMessages);
+    setIsSendingChat(true);
+
+    try {
+      const history = newMessages.slice(0, -1).map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        text: msg.text
+      }));
+
+      const serviceName = SERVICES.find(s => s.id === selectedService)?.name || selectedService;
+
+      const response = await fetch('/api/chat-document', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          image: uploadedImage,
+          mimeType: mimeType || 'image/jpeg',
+          serviceType: serviceName,
+          message: userMsg,
+          history: history
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || errData.details || 'Failed to get answer.');
+      }
+
+      const data = await response.json();
+      setChatMessages([
+        ...newMessages,
+        { role: 'assistant', text: data.text, timestamp: new Date() }
+      ]);
+    } catch (error: any) {
+      console.error('Chat error:', error);
+      setChatError(error.message || 'Unable to connect with assistant.');
+    } finally {
+      setIsSendingChat(false);
+    }
+  };
+
+  const filteredServices = SERVICES.filter(service => 
+    service.name.toLowerCase().includes(serviceSearchQuery.toLowerCase()) ||
+    service.dept.toLowerCase().includes(serviceSearchQuery.toLowerCase()) ||
+    (service.nameHi && service.nameHi.toLowerCase().includes(serviceSearchQuery.toLowerCase()))
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -204,7 +364,7 @@ export default function App() {
 
   // --- Dynamic Canvas Mock Form Generator ---
   // Generates high-quality base64 forms dynamically to let users test instantly
-  const handleTriggerPreset = (presetType: 'aadhaar_incomplete' | 'driving_complete' | 'passport_missing_address' | 'wrong_document') => {
+  const handleTriggerPreset = (presetType: 'aadhaar_incomplete' | 'driving_complete' | 'passport_missing_address' | 'wrong_document' | 'voter_id_incomplete' | 'income_cert_unapproved' | 'ayushman_complete') => {
     stopCamera();
     setErrorMsg(null);
     setAnalysisResult(null);
@@ -214,6 +374,9 @@ export default function App() {
     if (presetType === 'driving_complete') targetService = 'driving_license';
     if (presetType === 'passport_missing_address') targetService = 'passport';
     if (presetType === 'wrong_document') targetService = 'passport'; // wrong doc uploaded for passport
+    if (presetType === 'voter_id_incomplete') targetService = 'voter_id';
+    if (presetType === 'income_cert_unapproved') targetService = 'income_certificate';
+    if (presetType === 'ayushman_complete') targetService = 'ayushman_card';
 
     setSelectedService(targetService);
 
@@ -245,8 +408,35 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = (event) => {
       if (event.target?.result) {
-        setUploadedImage(event.target.result as string);
-        setMimeType(file.type);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxDimension = 1000;
+          let width = img.width;
+          let height = img.height;
+
+          // Downscale if dimensions exceed 1000px while maintaining original aspect ratio
+          if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            } else {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85);
+            setUploadedImage(compressedBase64);
+            setMimeType('image/jpeg');
+          }
+        };
+        img.src = event.target.result as string;
       }
     };
     reader.readAsDataURL(file);
@@ -325,6 +515,273 @@ export default function App() {
     setAnalysisResult(null);
     setErrorMsg(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+
+    // Stop and clear liveness speech synthesis
+    try {
+      window.speechSynthesis.cancel();
+    } catch (e) {}
+    setPlayingSpeechIdx(null);
+    setIsPlayingEncouragement(false);
+
+    // Reset Zoom / Rotate states
+    setIsPreviewModalOpen(false);
+    setPreviewScale(1);
+    setPreviewRotation(0);
+
+    // Clear document Q&A chat
+    setChatMessages([]);
+    setChatInput('');
+    setChatError(null);
+  };
+
+  const downloadPdfReport = () => {
+    if (!analysisResult) return;
+
+    const doc = new jsPDF();
+    const serviceName = SERVICES.find(s => s.id === selectedService)?.name || analysisResult.documentType;
+
+    // Helper to sanitize non-ASCII characters (e.g., Devanagari Hindi) for standard jsPDF fonts
+    const sanitizeText = (text: string): string => {
+      if (!text) return '';
+      // Strip any characters that are not in standard printable ASCII range
+      return text.replace(/[^\x20-\x7E\s]/g, '');
+    };
+
+    // Report Header & Banner
+    doc.setFillColor(31, 41, 55); // #1f2937 - Dark Slate Header
+    doc.rect(0, 0, 210, 40, 'F');
+
+    // Title
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.text('FORM-FIXER: CIVIC DOCUMENT REPORT', 15, 18);
+    
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(`Generated on: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()} (Smart Bharat Platform)`, 15, 28);
+    doc.text('https://form-fixer.bharat', 150, 28);
+
+    // Meta Information block
+    doc.setTextColor(55, 65, 81);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Target Government Service:', 15, 52);
+    doc.setFont('helvetica', 'normal');
+    doc.text(sanitizeText(serviceName), 72, 52);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Detected Document Type:', 15, 58);
+    doc.setFont('helvetica', 'normal');
+    doc.text(sanitizeText(analysisResult.documentType || 'N/A'), 72, 58);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Verification Confidence:', 15, 64);
+    doc.setFont('helvetica', 'normal');
+    doc.text('High (AI Vision Authenticated)', 72, 64);
+
+    // Document Status Box (colored background based on status)
+    let statusBg = [239, 68, 68]; // Red for INVALID_DOCUMENT
+    let statusText = 'INVALID DOCUMENT - RE-UPLOAD REQUIRED';
+
+    if (analysisResult.documentStatus === 'COMPLETE') {
+      statusBg = [16, 185, 129]; // Green
+      statusText = 'COMPLETE - READY FOR GOVERNMENT SUBMISSION';
+    } else if (analysisResult.documentStatus === 'NEEDS_ATTENTION') {
+      statusBg = [245, 158, 11]; // Yellow/Amber
+      statusText = 'NEEDS ATTENTION - CORRECTIVE ACTION REQUIRED';
+    }
+
+    doc.setFillColor(statusBg[0], statusBg[1], statusBg[2]);
+    doc.rect(15, 72, 180, 14, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text(`VERIFICATION STATUS: ${statusText}`, 20, 81);
+
+    let yPos = 100;
+
+    // Privacy & Redacted Data Section
+    doc.setTextColor(31, 41, 55);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('1. Privacy Shield & Redacted Sensitive Data', 15, yPos);
+    
+    // Draw a divider line
+    doc.setDrawColor(209, 213, 219);
+    doc.setLineWidth(0.5);
+    doc.line(15, yPos + 3, 195, yPos + 3);
+    yPos += 10;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(75, 85, 99);
+    doc.text('Form-Fixer is Bhasini-compliant. To secure your identity, all highly sensitive credential numbers', 15, yPos);
+    yPos += 4.5;
+    doc.text('have been redacted and masked server-side in compliance with UIDAI & state privacy rules.', 15, yPos);
+    yPos += 8;
+
+    if (analysisResult.redactedData && analysisResult.redactedData.length > 0) {
+      // Draw redacted data table header
+      doc.setFillColor(243, 244, 246);
+      doc.rect(15, yPos, 180, 7, 'F');
+      
+      doc.setTextColor(31, 41, 55);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Detected Credential Type', 20, yPos + 5);
+      doc.text('Action Taken / Masked Representation', 110, yPos + 5);
+      
+      yPos += 7;
+      doc.setFont('helvetica', 'normal');
+      analysisResult.redactedData.forEach(item => {
+        doc.rect(15, yPos, 180, 8);
+        doc.text(sanitizeText(item.type), 20, yPos + 5.5);
+        doc.text(`${sanitizeText(item.originalDetected)} - ${sanitizeText(item.actionTaken)}`, 110, yPos + 5.5);
+        yPos += 8;
+      });
+    } else {
+      doc.setFont('helvetica', 'italic');
+      doc.text('No highly sensitive raw numbers (e.g. 12-digit Aadhaar/PAN) were exposed or required masking.', 15, yPos);
+      yPos += 8;
+    }
+
+    yPos += 10;
+
+    // Document Completeness Checklist Section
+    if (yPos > 240) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    doc.setTextColor(31, 41, 55);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('2. Document Completeness Checklist', 15, yPos);
+    doc.line(15, yPos + 3, 195, yPos + 3);
+    yPos += 10;
+
+    if (analysisResult.detectedFields && analysisResult.detectedFields.length > 0) {
+      analysisResult.detectedFields.forEach(field => {
+        if (yPos > 265) {
+          doc.addPage();
+          yPos = 20;
+        }
+        
+        // Status indicator circle/marker
+        if (field.status === 'FILLED') {
+          doc.setFillColor(16, 185, 129); // green
+          doc.rect(15, yPos, 12, 5, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.text('OK', 18, yPos + 3.8);
+        } else {
+          doc.setFillColor(239, 68, 68); // red
+          doc.rect(15, yPos, 12, 5, 'F');
+          doc.setTextColor(255, 255, 255);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.text('FAIL', 17, yPos + 3.8);
+        }
+
+        doc.setTextColor(31, 41, 55);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.text(`${sanitizeText(field.name)}`, 30, yPos + 4);
+        
+        yPos += 6;
+        doc.setTextColor(107, 114, 128);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        const splitDetails = doc.splitTextToSize(sanitizeText(field.details), 160);
+        doc.text(splitDetails, 30, yPos);
+        yPos += (splitDetails.length * 4) + 6;
+      });
+    } else {
+      doc.setFont('helvetica', 'italic');
+      doc.text('No layout checklist details available for this document.', 15, yPos);
+      yPos += 8;
+    }
+
+    yPos += 6;
+
+    // Required Action Steps Section
+    if (analysisResult.requiredSteps && analysisResult.requiredSteps.length > 0) {
+      if (yPos > 230) {
+        doc.addPage();
+        yPos = 20;
+      }
+
+      doc.setTextColor(31, 41, 55);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text('3. Step-by-Step Corrective Action Steps', 15, yPos);
+      doc.line(15, yPos + 3, 195, yPos + 3);
+      yPos += 10;
+
+      analysisResult.requiredSteps.forEach(step => {
+        if (yPos > 255) {
+          doc.addPage();
+          yPos = 20;
+        }
+
+        doc.setFillColor(249, 250, 251);
+        doc.rect(15, yPos, 180, 18, 'F');
+        doc.setDrawColor(229, 231, 235);
+        doc.rect(15, yPos, 180, 18);
+
+        doc.setFillColor(31, 41, 55);
+        doc.rect(17, yPos + 2, 6, 6, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.text(step.stepNumber.toString(), 19.5, yPos + 6.2);
+
+        doc.setTextColor(31, 41, 55);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.text(sanitizeText(step.titleEn), 26, yPos + 6.2);
+
+        doc.setTextColor(107, 114, 128);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        
+        const descText = `${step.descriptionEn} (Action step in Hindi: ${step.titleHi})`;
+        const splitDesc = doc.splitTextToSize(sanitizeText(descText), 164);
+        doc.text(splitDesc, 26, yPos + 11);
+
+        yPos += 22;
+      });
+    }
+
+    // Civic Encouragement Note
+    if (analysisResult.encouragementEn) {
+      if (yPos > 250) {
+        doc.addPage();
+        yPos = 20;
+      }
+      yPos += 4;
+      doc.setFillColor(240, 253, 250); // Light teal/emerald green
+      doc.rect(15, yPos, 180, 16, 'F');
+      doc.setDrawColor(16, 185, 129);
+      doc.rect(15, yPos, 180, 16);
+
+      doc.setTextColor(15, 118, 110);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('Platform Assistance Advice / सहायक सलाह:', 18, yPos + 5);
+      
+      doc.setTextColor(55, 65, 81);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8.5);
+      const splitEncEn = doc.splitTextToSize(`"${analysisResult.encouragementEn}"`, 170);
+      doc.text(splitEncEn, 18, yPos + 10);
+    }
+
+    // Save PDF with clean descriptive name
+    const cleanServiceName = selectedService.toUpperCase().replace(/_/g, '_');
+    const filename = `Form_Fixer_Report_${cleanServiceName}_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(filename);
   };
 
   return (
@@ -385,15 +842,20 @@ export default function App() {
         {/* Left Column: Form Selection & Presets (Grid span 5) */}
         <section className="lg:col-span-5 flex flex-col gap-6" id="setup-section">
           
-          {/* Card 1: Select Govt Service */}
-          <div className="bg-natural-card rounded-2xl border border-natural-border p-6 shadow-xs">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-7 h-7 bg-natural-bg text-primary font-bold rounded-full flex items-center justify-center text-sm font-mono border border-natural-border">
-                1
+          {/* Card 1: Select Govt Service (With Search & Filter Dropdown) */}
+          <div className="bg-natural-card rounded-2xl border border-natural-border p-6 shadow-xs relative" id="service-select-dropdown-container">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 bg-natural-bg text-primary font-bold rounded-full flex items-center justify-center text-sm font-mono border border-natural-border">
+                  1
+                </span>
+                <h2 className="text-lg font-serif font-semibold text-natural-dark">
+                  {languageMode === 'hindi' ? 'सरकारी सेवा चुनें' : 'Select Government Service'}
+                </h2>
+              </div>
+              <span className="text-[10px] bg-primary/10 text-primary font-extrabold px-2 py-0.5 rounded-full font-mono">
+                {SERVICES.length} Services
               </span>
-              <h2 className="text-lg font-serif font-semibold text-natural-dark">
-                {languageMode === 'hindi' ? 'सरकारी सेवा चुनें' : 'Select Government Service'}
-              </h2>
             </div>
             
             <p className="text-xs text-accent mb-4">
@@ -402,33 +864,93 @@ export default function App() {
                 : 'Select the service you are applying for. The AI will evaluate your document strictly against this service\'s guidelines.'}
             </p>
 
-            <div className="space-y-2.5">
-              {SERVICES.map((srv) => (
-                <button
-                  key={srv.id}
-                  onClick={() => setSelectedService(srv.id)}
-                  className={`w-full text-left p-3.5 rounded-xl border-2 transition-all flex items-start justify-between gap-3 ${
-                    selectedService === srv.id
-                      ? 'border-primary bg-natural-bg text-primary shadow-xs'
-                      : 'border-natural-border bg-natural-card hover:border-accent text-natural-dark'
-                  }`}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <FileText className={`w-5 h-5 mt-0.5 ${selectedService === srv.id ? 'text-primary' : 'text-accent'}`} />
-                    <div>
-                      <div className="font-medium text-sm text-natural-dark">{srv.name}</div>
-                      <div className="text-[11px] text-accent font-mono mt-0.5">{srv.dept}</div>
+            {/* Custom Searchable Select Box */}
+            <div className="relative">
+              {/* Trigger Button */}
+              <button
+                onClick={() => setIsServiceDropdownOpen(!isServiceDropdownOpen)}
+                type="button"
+                className="w-full text-left p-3.5 rounded-xl border-2 border-primary bg-natural-bg/40 hover:bg-natural-bg/80 transition-all flex items-center justify-between gap-3 text-natural-dark shadow-inner cursor-pointer"
+              >
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <FileText className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+                  <div className="truncate">
+                    <div className="font-bold text-sm text-natural-dark">
+                      {SERVICES.find(s => s.id === selectedService)?.name}
+                    </div>
+                    <div className="text-[10px] text-accent font-mono mt-0.5 uppercase tracking-wide">
+                      {SERVICES.find(s => s.id === selectedService)?.dept}
                     </div>
                   </div>
-                  {selectedService === srv.id && (
-                    <span className="h-2.5 w-2.5 bg-primary rounded-full mt-1.5 ring-4 ring-primary/20"></span>
-                  )}
-                </button>
-              ))}
+                </div>
+                <ChevronDown className={`w-5 h-5 text-accent transition-transform ${isServiceDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Dropdown Panel with Search */}
+              {isServiceDropdownOpen && (
+                <div className="absolute left-0 right-0 mt-2 bg-white border-2 border-natural-border rounded-xl shadow-lg z-50 p-2 space-y-2 max-h-[380px] overflow-hidden flex flex-col">
+                  {/* Search Bar */}
+                  <div className="relative flex items-center">
+                    <Search className="w-4 h-4 text-accent absolute left-3 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={serviceSearchQuery}
+                      onChange={(e) => setServiceSearchQuery(e.target.value)}
+                      placeholder={languageMode === 'hindi' ? 'सर्च सेवा... (उदा. आधार)' : 'Search services... (e.g., Aadhaar)'}
+                      className="w-full pl-9 pr-4 py-2 bg-natural-bg text-natural-dark text-xs font-semibold rounded-lg border border-natural-border focus:outline-none focus:border-primary transition-all"
+                    />
+                    {serviceSearchQuery && (
+                      <button
+                        onClick={() => setServiceSearchQuery('')}
+                        type="button"
+                        className="text-[10px] text-accent hover:text-natural-dark absolute right-3 font-bold"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Scrollable List */}
+                  <div className="flex-1 overflow-y-auto max-h-[250px] space-y-1 pr-1" id="services-scroll-list">
+                    {filteredServices.length > 0 ? (
+                      filteredServices.map((srv) => (
+                        <button
+                          key={srv.id}
+                          onClick={() => {
+                            setSelectedService(srv.id);
+                            setIsServiceDropdownOpen(false);
+                            setServiceSearchQuery('');
+                          }}
+                          type="button"
+                          className={`w-full text-left p-2.5 rounded-lg text-xs transition-all flex items-center justify-between gap-3 ${
+                            selectedService === srv.id
+                              ? 'bg-primary/10 text-primary font-semibold'
+                              : 'hover:bg-natural-bg text-natural-dark'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="font-semibold text-natural-dark truncate">{srv.name}</div>
+                            <div className="text-[10px] text-accent font-mono mt-0.5 truncate">{srv.dept}</div>
+                          </div>
+                          {selectedService === srv.id ? (
+                            <Check className="w-4 h-4 text-primary flex-shrink-0" />
+                          ) : (
+                            <span className="text-[9px] text-accent/60 uppercase font-mono">{srv.id.replace('_', ' ')}</span>
+                          )}
+                        </button>
+                      ))
+                    ) : (
+                      <div className="p-4 text-center text-xs text-accent italic">
+                        No government services found for "{serviceSearchQuery}"
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-
-          {/* Card 2: Demo Presets / Quick Testing Simulator */}
+ 
+           {/* Card 2: Demo Presets / Quick Testing Simulator */}
           <div className="bg-[#FFFFFF] rounded-2xl p-6 text-natural-dark shadow-xs border border-natural-border">
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="w-5 h-5 text-primary" />
@@ -438,52 +960,88 @@ export default function App() {
             <p className="text-xs text-accent mb-4">
               No government form on hand? Click a scenario below to render a realistic mock document on an HTML canvas instantly and send it to the vision engine.
             </p>
-
-            <div className="grid grid-cols-1 gap-2.5">
+ 
+            <div className="grid grid-cols-1 gap-2.5 max-h-[420px] overflow-y-auto pr-1">
               <button
                 onClick={() => handleTriggerPreset('aadhaar_incomplete')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark"
+                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
               >
                 <div>
-                  <div className="font-semibold text-amber-700">🔴 Incomplete Aadhaar Form</div>
-                  <div className="text-[10px] text-accent mt-0.5">Missing signature, exposed raw ID numbers.</div>
+                  <div className="font-semibold text-amber-700">🔴 Aadhaar Card (Incomplete)</div>
+                  <div className="text-[10px] text-accent mt-0.5">UIDAI Form: Missing signature, exposed unmasked number.</div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
               </button>
-
+ 
               <button
                 onClick={() => handleTriggerPreset('passport_missing_address')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark"
+                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
               >
                 <div>
                   <div className="font-semibold text-orange-700">🟡 Passport Form (Blank Address)</div>
-                  <div className="text-[10px] text-accent mt-0.5">Permanent Address left completely empty.</div>
+                  <div className="text-[10px] text-accent mt-0.5">Form 1: Permanent Address field left completely empty.</div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
               </button>
-
+ 
               <button
                 onClick={() => handleTriggerPreset('driving_complete')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark"
+                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
               >
                 <div>
-                  <div className="font-semibold text-emerald-700">🟢 Complete Driving License Form</div>
-                  <div className="text-[10px] text-accent mt-0.5">Fully filled details, signed & verifier stamped.</div>
+                  <div className="font-semibold text-emerald-700">🟢 Driving License (Complete)</div>
+                  <div className="text-[10px] text-accent mt-0.5">Form 4: Fully filled details, signed & verified.</div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
               </button>
 
               <button
-                onClick={() => handleTriggerPreset('wrong_document')}
+                onClick={() => handleTriggerPreset('voter_id_incomplete')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark"
+                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
               >
                 <div>
-                  <div className="font-semibold text-rose-700">❌ Electricity Utility Bill</div>
-                  <div className="text-[10px] text-accent mt-0.5">Uploading an invoice instead of passport form.</div>
+                  <div className="font-semibold text-[#C2410C]">🔴 Voter ID Form 6 (Incomplete)</div>
+                  <div className="text-[10px] text-accent mt-0.5">Form 6 Electoral Roll: Age Proof document missing.</div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
+              </button>
+
+              <button
+                onClick={() => handleTriggerPreset('income_cert_unapproved')}
+                disabled={isAnalyzing}
+                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
+              >
+                <div>
+                  <div className="font-semibold text-[#B45309]">🟠 Income Certificate (Rejected)</div>
+                  <div className="text-[10px] text-accent mt-0.5">Revenue Application: Missing official Lekhpal stamp.</div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
+              </button>
+
+              <button
+                onClick={() => handleTriggerPreset('ayushman_complete')}
+                disabled={isAnalyzing}
+                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
+              >
+                <div>
+                  <div className="font-semibold text-[#0F766E]">🟢 Ayushman Card (Complete)</div>
+                  <div className="text-[10px] text-accent mt-0.5">Golden Card application: fully stamped, signed & verified.</div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
+              </button>
+ 
+              <button
+                onClick={() => handleTriggerPreset('wrong_document')}
+                disabled={isAnalyzing}
+                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
+              >
+                <div>
+                  <div className="font-semibold text-rose-700">❌ Electricity Bill (Invalid Doc)</div>
+                  <div className="text-[10px] text-accent mt-0.5">Invoice: Uploading utility invoice instead of form.</div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
               </button>
@@ -655,15 +1213,20 @@ export default function App() {
               <div className="space-y-4">
                 {/* File Selected Area */}
                 <div className="relative rounded-2xl border border-natural-border bg-natural-bg/40 p-4 overflow-hidden flex flex-col md:flex-row gap-4 items-center">
-                  <div className="w-32 h-40 bg-natural-card border border-natural-border rounded-xl overflow-hidden flex-shrink-0 shadow-xs relative group">
+                  <div 
+                    onClick={() => setIsPreviewModalOpen(true)}
+                    className="w-32 h-40 bg-natural-card border border-natural-border rounded-xl overflow-hidden flex-shrink-0 shadow-xs relative group cursor-pointer hover:border-primary transition-all duration-300"
+                    title="Click to zoom / rotate document"
+                  >
                     <img
                       src={uploadedImage}
                       alt="Uploaded Document"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                     {/* Visual Zoom Overlay on hover */}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-semibold">
-                      Uploaded Image
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[11px] font-semibold gap-1">
+                      <Search className="w-4 h-4 text-primary animate-pulse" />
+                      <span>{languageMode === 'hindi' ? 'बड़ा करें' : 'Click to View'}</span>
                     </div>
                   </div>
 
@@ -684,7 +1247,7 @@ export default function App() {
                       <button
                         onClick={triggerManualAnalysis}
                         disabled={isAnalyzing}
-                        className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-1.5 transition-all"
+                        className="bg-primary hover:bg-primary-hover text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-sm disabled:opacity-50 flex items-center gap-1.5 transition-all cursor-pointer"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
                         {isAnalyzing 
@@ -692,9 +1255,16 @@ export default function App() {
                           : (languageMode === 'hindi' ? 'दस्तावेज़ सत्यापित करें' : 'Verify Document Now')}
                       </button>
                       <button
+                        onClick={() => setIsPreviewModalOpen(true)}
+                        className="bg-white border border-natural-border hover:bg-natural-bg text-natural-dark text-xs font-semibold px-4 py-2.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Search className="w-3.5 h-3.5 text-primary" />
+                        {languageMode === 'hindi' ? 'देखें / ज़ूम करें' : 'View / Zoom'}
+                      </button>
+                      <button
                         onClick={clearAppStates}
                         disabled={isAnalyzing}
-                        className="bg-natural-bg hover:bg-natural-border text-natural-dark text-xs font-semibold px-4 py-2.5 rounded-xl transition-all disabled:opacity-50"
+                        className="bg-natural-bg hover:bg-natural-border text-natural-dark text-xs font-semibold px-4 py-2.5 rounded-xl transition-all disabled:opacity-50 cursor-pointer"
                       >
                         {languageMode === 'hindi' ? 'हटाएं' : 'Remove'}
                       </button>
@@ -809,15 +1379,25 @@ export default function App() {
                     </div>
                   </div>
 
-                  <span className={`px-3 py-1 text-xs font-bold rounded-full border shadow-2xs font-mono uppercase ${
-                    analysisResult.documentStatus === 'COMPLETE'
-                      ? 'bg-emerald-100/50 border-emerald-200 text-emerald-800'
-                      : analysisResult.documentStatus === 'NEEDS_ATTENTION'
-                      ? 'bg-[#FFF3EB] border-warning-border/20 text-[#D95D00]'
-                      : 'bg-rose-100/50 border-rose-200 text-rose-800'
-                  }`}>
-                    {analysisResult.documentStatus.replace('_', ' ')}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => setIsPreviewModalOpen(true)}
+                      className="px-3 py-1.5 text-xs font-bold rounded-full bg-white hover:bg-natural-bg text-natural-dark border border-natural-border/30 shadow-2xs flex items-center gap-1 transition-all cursor-pointer"
+                      title="View / Zoom original document image"
+                    >
+                      <Search className="w-3.5 h-3.5 text-primary" />
+                      {languageMode === 'hindi' ? 'दस्तावेज़ देखें' : 'View Image'}
+                    </button>
+                    <span className={`px-3 py-1.5 text-xs font-bold rounded-full border shadow-2xs font-mono uppercase ${
+                      analysisResult.documentStatus === 'COMPLETE'
+                        ? 'bg-emerald-100/50 border-emerald-200 text-emerald-800'
+                        : analysisResult.documentStatus === 'NEEDS_ATTENTION'
+                        ? 'bg-[#FFF3EB] border-warning-border/20 text-[#D95D00]'
+                        : 'bg-rose-100/50 border-rose-200 text-rose-800'
+                    }`}>
+                      {analysisResult.documentStatus.replace('_', ' ')}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Tab 2: Personal Data Privacy Shield */}
@@ -901,7 +1481,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Tab 4: Step-by-Step Bilingual Actionable Fixes */}
                 {analysisResult.requiredSteps && analysisResult.requiredSteps.length > 0 && (
                   <div className="bg-natural-card rounded-2xl border border-natural-border p-6 shadow-xs space-y-4">
                     <div className="flex items-center justify-between">
@@ -916,7 +1495,7 @@ export default function App() {
 
                     <div className="space-y-4">
                       {analysisResult.requiredSteps.map((step) => (
-                        <div key={step.stepNumber} className="flex gap-4 p-4 rounded-xl border border-natural-border bg-natural-bg/10">
+                        <div key={step.stepNumber} className="flex gap-4 p-4 rounded-xl border border-natural-border bg-natural-bg/10 relative overflow-hidden group/step">
                           <div className="w-8 h-8 bg-primary text-white font-bold rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-mono shadow-xs">
                             {step.stepNumber}
                           </div>
@@ -924,27 +1503,53 @@ export default function App() {
                           <div className="flex-1 space-y-3">
                             {/* English version of the instruction */}
                             {(languageMode === 'bilingual' || languageMode === 'english') && (
-                              <div>
-                                <div className="text-xs font-serif font-bold text-natural-dark flex items-center gap-1.5">
-                                  <span className="text-[9px] bg-natural-bg text-accent font-mono px-1 rounded-sm uppercase border border-natural-border">EN</span>
-                                  {step.titleEn}
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="flex-1">
+                                  <div className="text-xs font-serif font-bold text-natural-dark flex items-center gap-1.5">
+                                    <span className="text-[9px] bg-natural-bg text-accent font-mono px-1 rounded-sm uppercase border border-natural-border">EN</span>
+                                    {step.titleEn}
+                                  </div>
+                                  <p className="text-xs text-accent mt-1 leading-relaxed">
+                                    {step.descriptionEn}
+                                  </p>
                                 </div>
-                                <p className="text-xs text-accent mt-1 leading-relaxed">
-                                  {step.descriptionEn}
-                                </p>
+                                <button
+                                  onClick={() => handleSpeak(`${step.titleEn}. ${step.descriptionEn}`, step.stepNumber * 2, 'en')}
+                                  className={`p-2 rounded-lg border transition-all cursor-pointer flex-shrink-0 ${
+                                    playingSpeechIdx === step.stepNumber * 2
+                                      ? 'bg-primary/10 border-primary text-primary animate-pulse'
+                                      : 'bg-white border-natural-border text-accent hover:text-primary hover:border-primary/40'
+                                  }`}
+                                  title="Listen to Step (English)"
+                                >
+                                  {playingSpeechIdx === step.stepNumber * 2 ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                                </button>
                               </div>
                             )}
 
                             {/* Hindi version of the instruction */}
                             {(languageMode === 'bilingual' || languageMode === 'hindi') && (
-                              <div className="pt-2 border-t border-dashed border-natural-border">
-                                <div className="text-xs font-serif font-bold text-natural-dark flex items-center gap-1.5">
-                                  <span className="text-[9px] bg-natural-bg text-accent font-mono px-1 rounded-sm uppercase border border-natural-border">HI</span>
-                                  {step.titleHi}
+                              <div className="pt-2 border-t border-dashed border-natural-border flex items-start justify-between gap-4">
+                                <div className="flex-1">
+                                  <div className="text-xs font-serif font-bold text-natural-dark flex items-center gap-1.5">
+                                    <span className="text-[9px] bg-natural-bg text-accent font-mono px-1 rounded-sm uppercase border border-natural-border">HI</span>
+                                    {step.titleHi}
+                                  </div>
+                                  <p className="text-xs text-accent mt-1 leading-relaxed">
+                                    {step.descriptionHi}
+                                  </p>
                                 </div>
-                                <p className="text-xs text-accent mt-1 leading-relaxed">
-                                  {step.descriptionHi}
-                                </p>
+                                <button
+                                  onClick={() => handleSpeak(`${step.titleHi}. ${step.descriptionHi}`, step.stepNumber * 2 + 1, 'hi')}
+                                  className={`p-2 rounded-lg border transition-all cursor-pointer flex-shrink-0 ${
+                                    playingSpeechIdx === step.stepNumber * 2 + 1
+                                      ? 'bg-primary/10 border-primary text-primary animate-pulse'
+                                      : 'bg-white border-natural-border text-accent hover:text-primary hover:border-primary/40'
+                                  }`}
+                                  title="आवाज में सुनें (हिंदी)"
+                                >
+                                  {playingSpeechIdx === step.stepNumber * 2 + 1 ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                                </button>
                               </div>
                             )}
                           </div>
@@ -954,16 +1559,44 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Tab 5: Civic Encouragement Card */}
+                {/* Tab 5: Civic Encouragement Card with voice player */}
                 <div className="p-5 rounded-2xl bg-gradient-to-r from-primary/5 via-natural-card to-accent/5 border border-natural-border shadow-xs relative overflow-hidden">
                   <div className="absolute right-0 bottom-0 translate-y-1/4 translate-x-1/4 text-primary/10 opacity-30 select-none">
                     <Sparkles className="w-40 h-40" />
                   </div>
                   
                   <div className="space-y-3 relative z-10">
-                    <div className="flex items-center gap-1.5 text-xs text-accent font-semibold font-mono uppercase">
-                      <Languages className="w-3.5 h-3.5 text-primary" />
-                      Assistance Summary / सारांश
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs text-accent font-semibold font-mono uppercase">
+                        <Languages className="w-3.5 h-3.5 text-primary" />
+                        Assistance Summary / सारांश
+                      </div>
+                      <div className="flex gap-1.5">
+                        {(languageMode === 'bilingual' || languageMode === 'english') && (
+                          <button
+                            onClick={() => handleSpeak(analysisResult.encouragementEn, 'encouragement', 'en')}
+                            className={`px-2.5 py-1 text-[10px] font-bold rounded-md border flex items-center gap-1 transition-all cursor-pointer ${
+                              isPlayingEncouragement && playingSpeechIdx === null
+                                ? 'bg-primary/15 border-primary text-primary animate-pulse'
+                                : 'bg-white border-natural-border text-accent hover:text-primary'
+                            }`}
+                          >
+                            <Volume2 className="w-3 h-3" /> EN
+                          </button>
+                        )}
+                        {(languageMode === 'bilingual' || languageMode === 'hindi') && (
+                          <button
+                            onClick={() => handleSpeak(analysisResult.encouragementHi, 'encouragement', 'hi')}
+                            className={`px-2.5 py-1 text-[10px] font-bold rounded-md border flex items-center gap-1 transition-all cursor-pointer ${
+                              isPlayingEncouragement && playingSpeechIdx !== null
+                                ? 'bg-primary/15 border-primary text-primary animate-pulse'
+                                : 'bg-white border-natural-border text-accent hover:text-primary'
+                            }`}
+                          >
+                            <Volume2 className="w-3 h-3" /> HI
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {(languageMode === 'bilingual' || languageMode === 'english') && (
@@ -980,6 +1613,123 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Tab 6: Interactive Civic AI Chat Assistant (Doc Q&A) */}
+                <div className="bg-natural-card rounded-2xl border border-natural-border p-6 shadow-xs space-y-4" id="civic-chat-assistant">
+                  <div className="flex items-center justify-between border-b border-natural-border pb-3">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="w-5 h-5 text-primary" />
+                      <div>
+                        <h4 className="text-sm font-serif font-bold text-natural-dark">
+                          {languageMode === 'hindi' ? 'दस्तावेज़ सहायक से सवाल पूछें' : 'Interactive Document Assistant Q&A'}
+                        </h4>
+                        <p className="text-[11px] text-accent">
+                          {languageMode === 'hindi' 
+                            ? 'अपने फ़ॉर्म, आवश्यक प्रमाण या नियमों के बारे में सीधे पूछें' 
+                            : 'Ask specific questions about your document, rules, or correction requirements'}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] bg-emerald-500/10 text-emerald-700 px-2.5 py-0.5 rounded-full font-mono font-bold border border-emerald-500/20 uppercase tracking-wider animate-pulse">
+                      Live AI
+                    </span>
+                  </div>
+
+                  {/* Chat Messages Log */}
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1 min-h-[80px] bg-natural-bg/10 rounded-xl p-3 border border-natural-border flex flex-col gap-3">
+                    {chatMessages.length === 0 ? (
+                      <div className="my-auto text-center p-4 text-xs text-accent italic space-y-2">
+                        <p>
+                          {languageMode === 'hindi' 
+                            ? 'पूछें: "मुझे इस फॉर्म पर कहाँ हस्ताक्षर करना है?" या "आयु प्रमाण के लिए कौन से दस्तावेज़ मान्य हैं?"' 
+                            : 'Try asking: "Where should I sign?" or "What documents can I use as Age Proof?"'}
+                        </p>
+                        {/* Quick suggestions chips */}
+                        <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                          <button
+                            onClick={() => {
+                              setChatInput(languageMode === 'hindi' ? 'इस दस्तावेज़ में क्या कमी है और इसे कैसे ठीक करें?' : 'What is missing in this document and how do I fix it?');
+                            }}
+                            className="text-[11px] bg-white hover:bg-natural-bg text-primary border border-natural-border px-2.5 py-1 rounded-full transition-all cursor-pointer font-medium"
+                          >
+                            💡 {languageMode === 'hindi' ? 'कमी क्या है?' : 'What is missing?'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setChatInput(languageMode === 'hindi' ? 'इस आवेदन के लिए कौन से आयु प्रमाण और निवास प्रमाण स्वीकार्य हैं?' : 'Which age proofs and address proofs are accepted for this application?');
+                            }}
+                            className="text-[11px] bg-white hover:bg-natural-bg text-primary border border-natural-border px-2.5 py-1 rounded-full transition-all cursor-pointer font-medium"
+                          >
+                            💡 {languageMode === 'hindi' ? 'स्वीकार्य प्रमाण?' : 'Acceptable Proof?'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setChatInput(languageMode === 'hindi' ? 'सुधार करने के बाद मुझे यह फ़ॉर्म कहाँ जमा करना होगा?' : 'Where do I need to submit this form once corrected?');
+                            }}
+                            className="text-[11px] bg-white hover:bg-natural-bg text-primary border border-natural-border px-2.5 py-1 rounded-full transition-all cursor-pointer font-medium"
+                          >
+                            💡 {languageMode === 'hindi' ? 'कहाँ जमा करें?' : 'Where to submit?'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      chatMessages.map((msg, idx) => (
+                        <div
+                          key={idx}
+                          className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div
+                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-3xs ${
+                              msg.role === 'user'
+                                ? 'bg-primary text-white rounded-tr-none'
+                                : 'bg-[#FFFFFF] text-natural-dark border border-natural-border rounded-tl-none font-sans'
+                            }`}
+                          >
+                            <p className="whitespace-pre-line font-medium">{msg.text}</p>
+                            <div className={`text-[9px] mt-1 text-right ${msg.role === 'user' ? 'text-white/70' : 'text-accent'}`}>
+                              {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+
+                    {isSendingChat && (
+                      <div className="flex justify-start">
+                        <div className="bg-[#FFFFFF] text-natural-dark border border-natural-border rounded-2xl rounded-tl-none px-4 py-3 text-xs shadow-3xs flex items-center gap-2">
+                          <RefreshCw className="w-3.5 h-3.5 text-primary animate-spin" />
+                          <span className="text-accent italic">
+                            {languageMode === 'hindi' ? 'सहायक विचार कर रहा है...' : 'Form-Fixer AI is thinking...'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {chatError && (
+                      <div className="p-2.5 bg-warning-bg border border-warning-border/30 text-warning-border rounded-xl text-center text-xs font-medium">
+                        {chatError}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Input Form Box */}
+                  <form onSubmit={handleSendChatMessage} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      placeholder={languageMode === 'hindi' ? 'सहायक से सवाल पूछें (जैसे: हस्ताक्षर कहाँ करें)...' : 'Ask anything about this document...'}
+                      disabled={isSendingChat}
+                      className="flex-1 bg-white border border-natural-border rounded-xl px-3 py-2.5 text-xs text-natural-dark focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary disabled:opacity-50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSendingChat || !chatInput.trim()}
+                      className="bg-primary hover:bg-primary-hover disabled:bg-natural-border text-white px-4 rounded-xl flex items-center justify-center transition-all disabled:cursor-not-allowed cursor-pointer active:scale-95"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </form>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -1000,6 +1750,110 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* 7. Image View & Zoom & Rotate Interactive Modal Overlay */}
+      <AnimatePresence>
+        {isPreviewModalOpen && uploadedImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/85 z-50 flex flex-col items-center justify-center p-4"
+          >
+            {/* Modal Container */}
+            <div className="relative w-full max-w-4xl bg-[#1c1c16] rounded-2xl border border-[#303024] p-4 flex flex-col gap-4 max-h-[90vh]">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-[#303024] pb-3 text-white">
+                <div className="flex items-center gap-2">
+                  <Search className="text-primary w-4 h-4" />
+                  <div>
+                    <h3 className="text-sm font-bold font-serif">
+                      {languageMode === 'hindi' ? 'दस्तावेज़ आवर्धक (ज़ूम और रोटेट)' : 'Interactive Document Magnifier'}
+                    </h3>
+                    <p className="text-[10px] text-slate-400">
+                      {languageMode === 'hindi' 
+                        ? 'छवि को ज़ूम या रोटेट करके विवरण देखें' 
+                        : 'Adjust scale or rotate to check specific text or signature blocks'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setIsPreviewModalOpen(false);
+                    setPreviewScale(1);
+                    setPreviewRotation(0);
+                  }}
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white cursor-pointer transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Toolbar */}
+              <div className="flex items-center justify-center gap-3.5 bg-black/40 p-2.5 rounded-xl border border-[#303024]/50">
+                <button
+                  onClick={() => setPreviewScale(prev => Math.max(0.5, prev - 0.25))}
+                  className="bg-white/10 hover:bg-white/20 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                  title="Zoom Out"
+                >
+                  <ZoomIn className="w-3.5 h-3.5 rotate-180" />
+                  <span>-</span>
+                </button>
+                <span className="text-xs text-white font-mono font-bold min-w-[50px] text-center">
+                  {Math.round(previewScale * 100)}%
+                </span>
+                <button
+                  onClick={() => setPreviewScale(prev => Math.min(3, prev + 0.25))}
+                  className="bg-white/10 hover:bg-white/20 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                  title="Zoom In"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                  <span>+</span>
+                </button>
+                <div className="h-4 w-[1px] bg-[#303024]"></div>
+                <button
+                  onClick={() => setPreviewRotation(prev => (prev + 90) % 360)}
+                  className="bg-white/10 hover:bg-white/20 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                  title="Rotate clockwise"
+                >
+                  <RotateCw className="w-3.5 h-3.5 text-primary" />
+                  <span>Rotate</span>
+                </button>
+                <div className="h-4 w-[1px] bg-[#303024]"></div>
+                <button
+                  onClick={() => {
+                    setPreviewScale(1);
+                    setPreviewRotation(0);
+                  }}
+                  className="bg-white/10 hover:bg-white/20 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                >
+                  <span>Reset</span>
+                </button>
+              </div>
+
+              {/* Image Viewport */}
+              <div className="flex-1 bg-black rounded-xl overflow-auto p-4 flex items-center justify-center relative min-h-[300px] max-h-[55vh]">
+                <img
+                  src={uploadedImage}
+                  alt="Original preview document"
+                  className="max-w-full max-h-full transition-transform duration-200 object-contain shadow-2xl"
+                  style={{
+                    transform: `scale(${previewScale}) rotate(${previewRotation}deg)`,
+                  }}
+                />
+              </div>
+
+              {/* Instructions */}
+              <div className="text-center text-[10px] text-slate-400">
+                {languageMode === 'hindi' 
+                  ? 'यह मूल छवि है जिसे विश्लेषण के लिए अपलोड किया गया है।' 
+                  : 'This is the original document preview layout analyzed by our Civic Assistant AI.'}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1009,7 +1863,7 @@ export default function App() {
 // ==========================================
 // Renders realistic layout forms to HTML Canvas and returns JPEG base64 URL.
 // Allows prompt testing without manual file gathering.
-function generateMockForm(type: 'aadhaar_incomplete' | 'driving_complete' | 'passport_missing_address' | 'wrong_document'): string {
+function generateMockForm(type: 'aadhaar_incomplete' | 'driving_complete' | 'passport_missing_address' | 'wrong_document' | 'voter_id_incomplete' | 'income_cert_unapproved' | 'ayushman_complete'): string {
   const canvas = document.createElement('canvas');
   canvas.width = 600;
   canvas.height = 800;
@@ -1343,6 +2197,180 @@ function generateMockForm(type: 'aadhaar_incomplete' | 'driving_complete' | 'pas
     ctx.fillText('NOT A GOVERNMENT APPLICATION FORM', 115, 545);
     ctx.font = 'italic bold 13px Arial, sans-serif';
     ctx.fillText('(MONTHLY UTILITY SERVICE INVOICE ONLY)', 140, 580);
+  } else if (type === 'voter_id_incomplete') {
+    // Draws voter id application
+    ctx.font = 'bold 15px Arial, sans-serif';
+    ctx.fillText('FORM 6 - APPLICATION FOR ELECTORAL ROLL ENTRY', 40, 135);
+    ctx.strokeStyle = '#ea580c';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(40, 142);
+    ctx.lineTo(560, 142);
+    ctx.stroke();
+
+    // Fields
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('1. State & Parliamentary Constituency:', 40, 185);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('NCT OF DELHI - CONSTITUENCY 12', 240, 185);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('2. Applicant Name (नाम):', 40, 225);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('YASHENDRA KUMAR', 240, 225);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('3. Date of Birth (जन्म तिथि):', 40, 265);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('15-08-1999', 240, 265);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('4. Annexure-I Age Proof Document:', 40, 315);
+    ctx.font = 'bold italic 12px Arial, sans-serif';
+    ctx.fillStyle = '#ea580c';
+    ctx.fillText('[ MISSING - NO DOCUMENT UPLOADED ]', 240, 315);
+    ctx.fillStyle = '#1e293b';
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('5. Permanent Address (पता):', 40, 365);
+    ctx.font = 'bold 11px Arial, sans-serif';
+    ctx.fillText('Flat 404, Sector 119, Noida, UP - 201305', 240, 365);
+
+    // Photograph box
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(400, 160, 140, 150);
+    ctx.fillStyle = '#ecfdf5';
+    ctx.fillRect(401, 161, 138, 148);
+    // Draw face
+    ctx.fillStyle = '#475569';
+    ctx.beginPath();
+    ctx.arc(470, 220, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(470, 265, 30, 16, 0, 0, Math.PI, true);
+    ctx.fill();
+
+    // Applicant Signature Box (Left empty to trigger incomplete status)
+    ctx.strokeStyle = '#ea580c';
+    ctx.lineWidth = 1.5;
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('6. Declaration Signature of Applicant:', 40, 500);
+    ctx.strokeRect(40, 515, 250, 75);
+    ctx.fillStyle = '#dc2626';
+    ctx.font = 'bold italic 11px Arial, sans-serif';
+    ctx.fillText('[ BLANK - NO SIGNATURE DETECTED ]', 55, 555);
+
+  } else if (type === 'income_cert_unapproved') {
+    // Draws Income certificate rejected application
+    ctx.font = 'bold 15px Arial, sans-serif';
+    ctx.fillText('REVENUE DEPARTMENT: INCOME CERTIFICATE', 40, 135);
+    ctx.strokeStyle = '#b45309';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(40, 142);
+    ctx.lineTo(560, 142);
+    ctx.stroke();
+
+    // Fields
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('1. Applicant Name (नाम):', 40, 185);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('YASHENDRA KUMAR', 240, 185);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('2. Father\'s Name (पिता का नाम):', 40, 225);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('SH. RAMESH KUMAR', 240, 225);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('3. Declared Annual Income (वार्षिक आय):', 40, 265);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('Rs. 1,20,000/- (ONE LAKH TWENTY THOUSAND)', 240, 265);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('4. Purpose of Certificate:', 40, 315);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('SCHOLARSHIP / FEE WAIVER', 240, 315);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('5. Lekhpal/Patwari Report Stamp:', 40, 365);
+    ctx.font = 'bold italic 11px Arial, sans-serif';
+    ctx.fillStyle = '#dc2626';
+    ctx.fillText('[ NOT SIGNED / NO REVENUE SEAL AFFIXED ]', 240, 365);
+    ctx.fillStyle = '#1e293b';
+
+    // Highlight Box
+    ctx.strokeStyle = '#dc2626';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(40, 500, 515, 120);
+    ctx.fillStyle = 'rgba(220, 38, 38, 0.04)';
+    ctx.fillRect(41, 501, 513, 118);
+    ctx.fillStyle = '#dc2626';
+    ctx.font = 'bold 15px Arial, sans-serif';
+    ctx.fillText('REJECTED - INSUFFICIENT REVENUE VERIFICATION', 60, 540);
+    ctx.font = '11px Arial, sans-serif';
+    ctx.fillText('Reason: Application requires a local Lekhpal / revenue inspector field verification stamp.', 60, 570);
+    ctx.fillText('Please re-apply with Form-E accompanied by certified income declarations.', 60, 590);
+
+  } else if (type === 'ayushman_complete') {
+    // Draws completely verified golden card
+    ctx.font = 'bold 15px Arial, sans-serif';
+    ctx.fillText('AYUSHMAN BHARAT - GOLDEN CARD APPLICATION', 40, 135);
+    ctx.strokeStyle = '#0f766e';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(40, 142);
+    ctx.lineTo(560, 142);
+    ctx.stroke();
+
+    // Fields
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('1. PM-JAY Family ID (परिवार आईडी):', 40, 185);
+    ctx.font = 'bold 12px Courier New, monospace';
+    ctx.fillText('1002 9876 5432 (MASKED)', 240, 185);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('2. Beneficiary Name (लाभार्थी का नाम):', 40, 225);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('YASHENDRA KUMAR', 240, 225);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('3. Year of Birth (जन्म का वर्ष):', 40, 265);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('1999', 240, 265);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('4. Gender (लिंग):', 40, 305);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('MALE', 240, 305);
+
+    ctx.font = '12px Arial, sans-serif';
+    ctx.fillText('5. State & District (राज्य व जिला):', 40, 345);
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('UTTAR PRADESH, GAUTAM BUDDHA NAGAR', 240, 345);
+
+    // Verified Stamp
+    ctx.strokeStyle = '#0f766e';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(315, 515, 240, 75);
+    ctx.fillStyle = 'rgba(15, 118, 110, 0.08)';
+    ctx.fillRect(316, 516, 238, 73);
+    ctx.fillStyle = '#0f766e';
+    ctx.font = 'bold 12px Arial, sans-serif';
+    ctx.fillText('APPROVED & VERIFIED', 360, 545);
+    ctx.font = '9px Arial, sans-serif';
+    ctx.fillText('NATIONAL HEALTH AUTHORITY / NHA', 345, 565);
+
+    // Signature box
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.strokeRect(40, 515, 250, 75);
+    ctx.fillStyle = '#1d4ed8';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(60, 555);
+    ctx.bezierCurveTo(90, 530, 110, 575, 140, 545);
+    ctx.stroke();
   }
 
   return canvas.toDataURL('image/jpeg', 0.95);

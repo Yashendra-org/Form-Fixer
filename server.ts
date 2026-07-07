@@ -182,20 +182,106 @@ Ensure the final output is 100% compliant with the provided JSON response schema
         }
       });
 
-      const responseText = response.text;
+      let responseText = response.text;
       if (!responseText) {
         res.status(500).json({ error: "Gemini did not return any readable analysis text." });
         return;
       }
 
-      // Parse the JSON response
-      const parsedAnalysis = JSON.parse(responseText.trim());
+      // Sanitize JSON by removing potential markdown wrapping blocks
+      responseText = responseText.trim();
+      if (responseText.startsWith("```")) {
+        responseText = responseText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      }
+      responseText = responseText.trim();
+
+      // Parse the JSON response safely
+      const parsedAnalysis = JSON.parse(responseText);
       res.json(parsedAnalysis);
 
     } catch (error: any) {
       console.error("Error analyzing form:", error);
       res.status(500).json({
         error: "Failed to analyze document. Please check the quality of your image and ensure it contains text.",
+        details: error.message || error
+      });
+    }
+  });
+
+  // API Endpoint: Document Q&A Chat
+  app.post("/api/chat-document", async (req: express.Request, res: express.Response): Promise<void> => {
+    try {
+      const { image, mimeType, serviceType, message, history } = req.body;
+
+      if (!image || !mimeType || !serviceType || !message) {
+        res.status(400).json({ error: "Missing required fields: image, mimeType, serviceType, or message" });
+        return;
+      }
+
+      // Check if API Key is configured
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        res.status(500).json({
+          error: "GEMINI_API_KEY is not configured on the server. Please add your Gemini API Key in the Secrets panel in AI Studio Settings."
+        });
+        return;
+      }
+
+      const ai = getAiClient();
+
+      const systemInstruction = `You are "Form-Fixer AI", an expert Indian civic guide and document assistant.
+The user is asking questions about an uploaded form/document for the government service "${serviceType}".
+You must help them correct their document, explain civic rules (like UIDAI Aadhaar guidelines, RTO vehicle classes, Ministry of External Affairs passport requirements), and guide them through filling forms, signature requirements, official seals, or proof documents.
+
+When answering:
+1. Always maintain a highly supportive, friendly, and empowering tone.
+2. Answer in the same language the user asks (e.g., if they ask in Hindi/Hinglish, answer in Hindi/Hinglish; if English, answer in English).
+3. Do not output any real sensitive numbers from the document (like 12-digit Aadhaar numbers or 10-char PAN numbers). Mask them if you refer to them.
+4. Give specific, precise advice based on the selected service guidelines. If they ask where to sign, point them to the designated signature boxes.
+5. Keep answers highly readable, scannable, and clear. Use standard Markdown for bullet points and bolding.`;
+
+      // Clean base64 image prefix
+      const cleanBase64 = image.includes(";base64,") ? image.split(";base64,")[1] : image;
+      const imagePart = {
+        inlineData: {
+          mimeType: mimeType,
+          data: cleanBase64,
+        },
+      };
+
+      const contents: any[] = [];
+      
+      // If we have conversational history, include it
+      if (history && Array.isArray(history)) {
+        for (const turn of history) {
+          contents.push({
+            role: turn.role === "user" ? "user" : "model",
+            parts: [{ text: turn.text }]
+          });
+        }
+      }
+
+      // Add current image and user's query
+      contents.push({
+        role: "user",
+        parts: [imagePart, { text: message }]
+      });
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: contents,
+        config: {
+          systemInstruction: systemInstruction,
+        }
+      });
+
+      const responseText = response.text || "I was unable to analyze your query. Please try again.";
+      res.json({ text: responseText });
+
+    } catch (error: any) {
+      console.error("Error in Q&A chat:", error);
+      res.status(500).json({
+        error: "Failed to process chat message.",
         details: error.message || error
       });
     }
