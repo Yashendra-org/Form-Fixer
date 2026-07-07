@@ -43,6 +43,106 @@ async function startServer() {
     res.json({ status: "healthy" });
   });
 
+  // API Endpoint: Quickly Validate Form/Document Type from low-resolution thumbnail (Tiered Processing)
+  app.post("/api/validate-form-type", async (req: express.Request, res: express.Response): Promise<void> => {
+    try {
+      const { image, mimeType, serviceType } = req.body;
+
+      if (!image || !mimeType || !serviceType) {
+        res.status(400).json({ error: "Missing required fields: image, mimeType, or serviceType" });
+        return;
+      }
+
+      // Check if API Key is configured
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        res.status(500).json({
+          error: "GEMINI_API_KEY is not configured on the server. Please add your Gemini API Key in the Secrets panel in AI Studio Settings."
+        });
+        return;
+      }
+
+      const ai = getAiClient();
+
+      const systemInstruction = `You are "Form-Fixer Validator", a high-performance document classifier.
+Analyze the provided low-resolution thumbnail image and determine if the document matches or is valid for the user's selected government service: "${serviceType}".
+
+Evaluation criteria:
+- Return isValid as true if the document type matches or is a plausible/acceptable form/document for the requested service (e.g., passport page/form for passport, Aadhaar card/enrollment form for Aadhaar, etc.).
+- Return isValid as false if the uploaded image is a completely different document (e.g. uploading a birth certificate when "PAN Card Application" was chosen), or if it's a completely non-document photo (e.g. scenic landscape, random selfie, animal, object, food, or totally blank/corrupted image).
+
+You must respond in the specified JSON schema.`;
+
+      const cleanBase64 = image.includes(";base64,") ? image.split(";base64,")[1] : image;
+
+      const imagePart = {
+        inlineData: {
+          mimeType: mimeType,
+          data: cleanBase64,
+        },
+      };
+
+      const promptPart = {
+        text: `Pre-validate if this thumbnail is a valid document/form for "${serviceType}".`,
+      };
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: {
+          parts: [imagePart, promptPart],
+        },
+        config: {
+          systemInstruction: systemInstruction,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              isValid: {
+                type: Type.BOOLEAN,
+                description: "True if the document in the thumbnail matches the expected service type, false otherwise."
+              },
+              documentType: {
+                type: Type.STRING,
+                description: "Identified document type name (e.g., 'Aadhaar Enrollment Form', 'PAN Card Form 49A', 'Incorrect Document/Photo')."
+              },
+              reason: {
+                type: Type.STRING,
+                description: "Brief explanation in English why it is valid or invalid."
+              },
+              reasonHi: {
+                type: Type.STRING,
+                description: "Brief explanation in Hindi why it is valid or invalid."
+              }
+            },
+            required: ["isValid", "documentType", "reason", "reasonHi"]
+          }
+        }
+      });
+
+      let responseText = response.text;
+      if (!responseText) {
+        res.status(500).json({ error: "Gemini did not return any readable pre-validation text." });
+        return;
+      }
+
+      responseText = responseText.trim();
+      if (responseText.startsWith("```")) {
+        responseText = responseText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      }
+      responseText = responseText.trim();
+
+      const parsedAnalysis = JSON.parse(responseText);
+      res.json(parsedAnalysis);
+
+    } catch (error: any) {
+      console.error("Error in document pre-validation:", error);
+      res.status(500).json({
+        error: "Failed to pre-validate document.",
+        details: error.message || error
+      });
+    }
+  });
+
   // API Endpoint: Analyze Document/Form using Gemini 3.5 Flash
   app.post("/api/analyze-form", async (req: express.Request, res: express.Response): Promise<void> => {
     try {

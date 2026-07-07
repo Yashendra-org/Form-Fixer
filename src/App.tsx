@@ -70,6 +70,15 @@ interface FormAnalysis {
   encouragementHi: string;
 }
 
+interface HistoryItem {
+  id: string;
+  timestamp: string;
+  serviceId: string;
+  image: string; // base64 representation
+  mimeType: string;
+  analysisResult: FormAnalysis;
+}
+
 // --- List of Supported Government Services ---
 const SERVICES = [
   { id: 'aadhaar', name: 'Aadhaar Card Enrollment/Update', nameHi: 'आधार कार्ड नामांकन/अपडेट', dept: 'UIDAI' },
@@ -107,6 +116,7 @@ export default function App() {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analysisStage, setAnalysisStage] = useState<'idle' | 'validating' | 'analyzing'>('idle');
   const [loadingMsgIdx, setLoadingMsgIdx] = useState<number>(0);
   const [analysisResult, setAnalysisResult] = useState<FormAnalysis | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -133,6 +143,76 @@ export default function App() {
   const [chatInput, setChatInput] = useState<string>('');
   const [isSendingChat, setIsSendingChat] = useState<boolean>(false);
   const [chatError, setChatError] = useState<string | null>(null);
+
+  // --- Session History List ---
+  const [historyList, setHistoryList] = useState<HistoryItem[]>([]);
+
+  // Load history on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('form_fixer_history_v3');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setHistoryList(parsed);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load history:', e);
+    }
+  }, []);
+
+  const saveHistoryToStorage = (updatedList: HistoryItem[]) => {
+    try {
+      localStorage.setItem('form_fixer_history_v3', JSON.stringify(updatedList));
+    } catch (e) {
+      console.error('Failed to save history:', e);
+    }
+  };
+
+  const addToHistory = (serviceId: string, image: string, mType: string, result: FormAnalysis) => {
+    const newItem: HistoryItem = {
+      id: Date.now().toString(),
+      timestamp: new Date().toISOString(),
+      serviceId,
+      image,
+      mimeType: mType,
+      analysisResult: result
+    };
+    setHistoryList(prev => {
+      // Remove duplicates
+      const filtered = prev.filter(item => item.image !== image || item.serviceId !== serviceId);
+      const updated = [newItem, ...filtered].slice(0, 5);
+      saveHistoryToStorage(updated);
+      return updated;
+    });
+  };
+
+  const deleteHistoryItem = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setHistoryList(prev => {
+      const updated = prev.filter(item => item.id !== id);
+      saveHistoryToStorage(updated);
+      return updated;
+    });
+  };
+
+  const restoreHistoryItem = (item: HistoryItem) => {
+    stopCamera();
+    setUploadedImage(item.image);
+    setMimeType(item.mimeType);
+    setSelectedService(item.serviceId);
+    setAnalysisResult(item.analysisResult);
+    setErrorMsg(null);
+    setChatMessages([]);
+    setChatInput('');
+    setChatError(null);
+    try {
+      window.speechSynthesis.cancel();
+    } catch (err) {}
+    setPlayingSpeechIdx(null);
+    setIsPlayingEncouragement(false);
+  };
 
   // Speech TTS Player function
   const handleSpeak = (text: string, idx: number | 'encouragement', lang: 'en' | 'hi') => {
@@ -463,15 +543,123 @@ export default function App() {
     }
   };
 
+  // --- Create low-resolution thumbnail helper for Tiered Processing ---
+  const createThumbnail = (imageSrc: string, mime: string): Promise<string> => {
+    return new Promise((resolve) => {
+      try {
+        if (!imageSrc || !imageSrc.startsWith('data:')) {
+          resolve(imageSrc);
+          return;
+        }
+
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const maxDim = 150; // Super small thumbnail for near-instant pre-validation
+            let w = img.width;
+            let h = img.height;
+            if (w > maxDim || h > maxDim) {
+              if (w > h) {
+                h = Math.round((h * maxDim) / w);
+                w = maxDim;
+              } else {
+                w = Math.round((w * maxDim) / h);
+                h = maxDim;
+              }
+            }
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, w, h);
+              resolve(canvas.toDataURL(mime || 'image/jpeg', 0.6));
+            } else {
+              resolve(imageSrc);
+            }
+          } catch (innerErr) {
+            console.error('Error drawing thumbnail:', innerErr);
+            resolve(imageSrc);
+          }
+        };
+        img.onerror = () => {
+          resolve(imageSrc);
+        };
+        img.src = imageSrc;
+      } catch (err) {
+        console.error('Thumbnail promise catch:', err);
+        resolve(imageSrc);
+      }
+    });
+  };
+
   // --- API Vision analysis invocation ---
   const analyzeFormImage = async (imageSrc: string, imageMime: string, serviceId: string) => {
     setIsAnalyzing(true);
+    setAnalysisStage('validating');
     setErrorMsg(null);
     setAnalysisResult(null);
 
     try {
       const selectedServiceObj = SERVICES.find(s => s.id === serviceId);
       const serviceLabel = selectedServiceObj ? selectedServiceObj.name : serviceId;
+
+      // 1. Send low-res thumbnail first for fast type pre-validation
+      const thumbnailBase64 = await createThumbnail(imageSrc, imageMime);
+      
+      const preCheckResponse = await fetch('/api/validate-form-type', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          image: thumbnailBase64,
+          mimeType: imageMime,
+          serviceType: serviceLabel
+        })
+      });
+
+      if (!preCheckResponse.ok) {
+        let errMessage = 'Pre-validation check failed.';
+        try {
+          const text = await preCheckResponse.text();
+          const errData = JSON.parse(text);
+          errMessage = errData.error || errData.details || errMessage;
+        } catch (e) {
+          errMessage = `Server error (${preCheckResponse.status}): Please check if your Gemini API key is configured.`;
+        }
+        throw new Error(errMessage);
+      }
+
+      const preCheckResult = await preCheckResponse.json();
+
+      // If validation fails, abort full OCR run immediately and show result gracefully
+      if (!preCheckResult.isValid) {
+        const mockResult: FormAnalysis = {
+          documentType: preCheckResult.documentType || 'Incorrect Document',
+          documentStatus: 'INVALID_DOCUMENT',
+          identifiedService: serviceLabel,
+          detectedFields: [],
+          requiredSteps: [
+            {
+              stepNumber: 1,
+              titleEn: 'Upload Correct Document Type',
+              titleHi: 'सही दस्तावेज़ प्रकार अपलोड करें',
+              descriptionEn: preCheckResult.reason || 'The pre-validation check indicates that this image does not match the selected service.',
+              descriptionHi: preCheckResult.reasonHi || 'सत्यापन जांच से पता चलता है कि यह छवि चुनी गई सेवा से मेल नहीं खाती है।'
+            }
+          ],
+          redactedData: [],
+          encouragementEn: 'Please verify the selected service and upload the matching document or form. This protects resources and ensures quick approval.',
+          encouragementHi: 'कृपया चुनी गई सेवा का सत्यापन करें और मिलान करने वाला दस्तावेज़ या फ़ॉर्म अपलोड करें। यह संसाधनों को सुरक्षित करता है और त्वरित स्वीकृति सुनिश्चित करता है।'
+        };
+        setAnalysisResult(mockResult);
+        addToHistory(serviceId, imageSrc, imageMime, mockResult);
+        return;
+      }
+
+      // 2. Document is pre-validated! Proceed to full-resolution analysis.
+      setAnalysisStage('analyzing');
 
       const response = await fetch('/api/analyze-form', {
         method: 'POST',
@@ -486,17 +674,26 @@ export default function App() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || errorData.details || 'Analysis request failed.');
+        let errMessage = 'Analysis request failed.';
+        try {
+          const text = await response.text();
+          const errData = JSON.parse(text);
+          errMessage = errData.error || errData.details || errMessage;
+        } catch (e) {
+          errMessage = `Server error (${response.status}): Failed to analyze document.`;
+        }
+        throw new Error(errMessage);
       }
 
       const result: FormAnalysis = await response.json();
       setAnalysisResult(result);
+      addToHistory(serviceId, imageSrc, imageMime, result);
     } catch (error: any) {
       console.error('Analysis error:', error);
       setErrorMsg(error.message || 'An error occurred while calling the document verification service.');
     } finally {
       setIsAnalyzing(false);
+      setAnalysisStage('idle');
     }
   };
 
@@ -507,6 +704,48 @@ export default function App() {
     }
     analyzeFormImage(uploadedImage, mimeType || 'image/jpeg', selectedService);
   };
+
+  // --- Global Keyboard Shortcuts ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 1. Ctrl + Enter -> Trigger document analysis
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        triggerManualAnalysis();
+      }
+
+      // 2. Ctrl + U -> Trigger upload
+      if (e.ctrlKey && e.key.toLowerCase() === 'u') {
+        e.preventDefault();
+        fileInputRef.current?.click();
+      }
+
+      // 3. Ctrl + C -> Toggle Camera (except when typing or copying)
+      if (e.ctrlKey && e.key.toLowerCase() === 'c') {
+        const active = document.activeElement;
+        const isInput = active && (
+          active.tagName === 'INPUT' || 
+          active.tagName === 'TEXTAREA' || 
+          active.getAttribute('contenteditable') === 'true'
+        );
+        const hasSelection = window.getSelection()?.toString().trim() !== '';
+
+        if (!isInput && !hasSelection) {
+          e.preventDefault();
+          if (isCameraActive) {
+            stopCamera();
+          } else {
+            startCamera();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [uploadedImage, mimeType, selectedService, isCameraActive, isAnalyzing]);
 
   const clearAppStates = () => {
     stopCamera();
@@ -1047,6 +1286,140 @@ export default function App() {
               </button>
             </div>
           </div>
+
+          {/* Card 3: Keyboard Shortcuts Cheatsheet */}
+          <div className="bg-[#FFFFFF] rounded-2xl p-6 text-natural-dark shadow-xs border border-natural-border">
+            <div className="flex items-center gap-2 mb-2">
+              <Info className="w-5 h-5 text-primary" />
+              <h3 className="text-md font-serif font-semibold text-primary">
+                {languageMode === 'hindi' ? 'कीबोर्ड शॉर्टकट्स' : 'Keyboard Shortcuts'}
+              </h3>
+            </div>
+            <p className="text-xs text-accent mb-4">
+              {languageMode === 'hindi'
+                ? 'माउस के बिना तेजी से काम करने के लिए इन शॉर्टकट्स का उपयोग करें:'
+                : 'Accelerate your verification workflow with these hand-designed global shortcuts:'}
+            </p>
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between text-xs p-2 bg-natural-bg/50 border border-natural-border/60 rounded-xl">
+                <span className="font-semibold text-natural-dark">
+                  {languageMode === 'hindi' ? 'दस्तावेज़ विश्लेषण शुरू करें' : 'Verify Document'}
+                </span>
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-1 bg-white border border-natural-border/80 rounded-md shadow-2xs text-[10px] font-mono font-bold text-accent">Ctrl</kbd>
+                  <span className="text-[10px] text-accent font-bold">+</span>
+                  <kbd className="px-2 py-1 bg-white border border-natural-border/80 rounded-md shadow-2xs text-[10px] font-mono font-bold text-accent">Enter</kbd>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs p-2 bg-natural-bg/50 border border-natural-border/60 rounded-xl">
+                <span className="font-semibold text-natural-dark">
+                  {languageMode === 'hindi' ? 'फ़ाइल अपलोड करें' : 'Upload Document File'}
+                </span>
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-1 bg-white border border-natural-border/80 rounded-md shadow-2xs text-[10px] font-mono font-bold text-accent">Ctrl</kbd>
+                  <span className="text-[10px] text-accent font-bold">+</span>
+                  <kbd className="px-2 py-1 bg-white border border-natural-border/80 rounded-md shadow-2xs text-[10px] font-mono font-bold text-accent">U</kbd>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs p-2 bg-natural-bg/50 border border-natural-border/60 rounded-xl">
+                <span className="font-semibold text-natural-dark">
+                  {languageMode === 'hindi' ? 'लाइव कैमरा शुरू/बंद करें' : 'Toggle Live Camera'}
+                </span>
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-1 bg-white border border-natural-border/80 rounded-md shadow-2xs text-[10px] font-mono font-bold text-accent">Ctrl</kbd>
+                  <span className="text-[10px] text-accent font-bold">+</span>
+                  <kbd className="px-2 py-1 bg-white border border-natural-border/80 rounded-md shadow-2xs text-[10px] font-mono font-bold text-accent">C</kbd>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 4: Verification Session History */}
+          <div className="bg-[#FFFFFF] rounded-2xl p-6 text-natural-dark shadow-xs border border-natural-border">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-primary" />
+                <h3 className="text-md font-serif font-semibold text-primary">
+                  {languageMode === 'hindi' ? 'सत्यापन इतिहास' : 'Verification History'}
+                </h3>
+              </div>
+              {historyList.length > 0 && (
+                <button
+                  onClick={() => setHistoryList([])}
+                  className="text-[11px] text-rose-700 hover:text-rose-800 font-semibold cursor-pointer transition-colors"
+                >
+                  {languageMode === 'hindi' ? 'सभी हटाएं' : 'Clear All'}
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-accent mb-4">
+              {languageMode === 'hindi'
+                ? 'इस सत्र में सत्यापित दस्तावेज़। पिछले परिणाम देखने या चर्चा करने के लिए किसी भी फ़ाइल पर क्लिक करें।'
+                : 'Bhasini-compliant cached documents from this session. Click any file to view analysis or start chat.'}
+            </p>
+
+            {historyList.length === 0 ? (
+              <div className="border border-dashed border-natural-border/60 rounded-xl p-6 text-center text-xs text-accent italic">
+                {languageMode === 'hindi'
+                  ? 'कोई पिछला दस्तावेज़ इतिहास नहीं मिला।'
+                  : 'No documents analyzed in this session yet.'}
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+                {historyList.map((item) => {
+                  const serviceName = SERVICES.find(s => s.id === item.serviceId)?.name || item.serviceId;
+                  const serviceNameHi = SERVICES.find(s => s.id === item.serviceId)?.nameHi || item.serviceId;
+                  const displayName = languageMode === 'hindi' ? serviceNameHi : serviceName;
+                  const isComplete = item.analysisResult.documentStatus === 'COMPLETE';
+                  const isAttention = item.analysisResult.documentStatus === 'NEEDS_ATTENTION';
+
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => restoreHistoryItem(item)}
+                      className="group relative flex items-center gap-3 p-2 bg-natural-bg/40 hover:bg-natural-bg border border-natural-border/50 hover:border-primary/40 rounded-xl cursor-pointer transition-all active:scale-[0.99] overflow-hidden"
+                    >
+                      {/* Tiny Thumbnail Preview */}
+                      <div className="w-10 h-12 rounded-lg bg-stone-100 border border-natural-border/50 overflow-hidden flex-shrink-0 flex items-center justify-center bg-cover bg-center" style={{ backgroundImage: `url(${item.image})` }}>
+                      </div>
+
+                      {/* Main info */}
+                      <div className="flex-1 min-w-0 pr-6">
+                        <div className="text-[11px] font-bold text-natural-dark truncate" title={displayName}>
+                          {displayName}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full font-mono uppercase border ${
+                            isComplete
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                              : isAttention
+                              ? 'bg-[#FFF3EB] border-warning-border/20 text-[#D95D00]'
+                              : 'bg-rose-50 border-rose-200 text-rose-800'
+                          }`}>
+                            {item.analysisResult.documentStatus.replace('_', ' ')}
+                          </span>
+                          <span className="text-[9px] text-accent/80 font-mono">
+                            {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Trash Delete button */}
+                      <button
+                        onClick={(e) => deleteHistoryItem(item.id, e)}
+                        className="p-1 rounded-lg hover:bg-rose-50 text-accent/60 hover:text-rose-700 transition-colors absolute right-2 opacity-0 group-hover:opacity-100 cursor-pointer"
+                        title="Delete from history"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </section>
 
         {/* Right Column: Upload Box & Analysis Report (Grid span 7) */}
@@ -1288,16 +1661,71 @@ export default function App() {
                 <div className="relative w-16 h-16 mx-auto">
                   {/* Glowing spinner animations */}
                   <div className="absolute inset-0 rounded-full border-4 border-natural-bg"></div>
-                  <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+                  <div className={`absolute inset-0 rounded-full border-4 border-t-transparent animate-spin ${
+                    analysisStage === 'validating' ? 'border-primary' : 'border-emerald-500'
+                  }`}></div>
                 </div>
                 
                 <div className="space-y-1.5">
                   <h3 className="text-md font-serif font-semibold text-natural-dark">
-                    Smart Bharat Vision Analysis in Progress
+                    {languageMode === 'hindi' ? 'स्मार्ट भारत विज़न विश्लेषण प्रगति पर है' : 'Smart Bharat Tiered Vision Verification'}
                   </h3>
                   <p className="text-xs text-accent">
-                    We are performing OCR, checklist mapping, and privacy scrubbing...
+                    {languageMode === 'hindi'
+                      ? 'दस्तावेज़ की त्वरित जांच और पूर्ण विश्लेषण एक साथ...'
+                      : 'Accelerated low-res pre-check coupled with full-resolution OCR checklist mapping...'}
                   </p>
+                </div>
+
+                {/* Tiered Progress Pipeline Visualizer */}
+                <div className="max-w-md mx-auto grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                  <div className={`p-3 rounded-xl border text-left transition-all ${
+                    analysisStage === 'validating'
+                      ? 'bg-primary/5 border-primary shadow-2xs'
+                      : 'bg-natural-bg/30 border-natural-border opacity-70'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                        analysisStage === 'validating'
+                          ? 'bg-primary text-white animate-pulse'
+                          : 'bg-emerald-500 text-white'
+                      }`}>
+                        {analysisStage !== 'validating' ? '✓' : '1'}
+                      </div>
+                      <span className="text-xs font-bold text-natural-dark">
+                        {languageMode === 'hindi' ? 'चरण 1: त्वरित जांच' : 'Stage 1: Pre-Validation'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-accent mt-1 leading-relaxed">
+                      {languageMode === 'hindi'
+                        ? 'Gemini को छोटा थंबनेल भेजकर दस्तावेज़ प्रकार की त्वरित जांच की जा रही है...'
+                        : 'Sending quick low-res thumbnail to validate correct form type...'}
+                    </p>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border text-left transition-all ${
+                    analysisStage === 'analyzing'
+                      ? 'bg-primary/5 border-primary shadow-2xs'
+                      : 'bg-natural-bg/30 border-natural-border opacity-70'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                        analysisStage === 'analyzing'
+                          ? 'bg-primary text-white animate-pulse'
+                          : 'bg-stone-200 text-stone-600'
+                      }`}>
+                        2
+                      </div>
+                      <span className="text-xs font-bold text-natural-dark">
+                        {languageMode === 'hindi' ? 'चरण 2: पूर्ण स्कैन' : 'Stage 2: Full OCR Scan'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-accent mt-1 leading-relaxed">
+                      {languageMode === 'hindi'
+                        ? 'पूरी इमेज का विश्लेषण, डेटा रेडैक्शन और सुधारात्मक कदमों की तैयारी...'
+                        : 'Full-resolution OCR checklist mapping and privacy sanitization...'}
+                    </p>
+                  </div>
                 </div>
 
                 {/* Rotating message box */}
