@@ -46,6 +46,8 @@ import {
   analyzeFormSchema
 } from './geminiClient';
 
+import formFixerLogo from './assets/images/form_fixer_logo_1784189901251.jpg';
+
 // --- TS Interfaces ---
 interface DetectedField {
   name: string;
@@ -129,7 +131,7 @@ export default function App() {
   const [analysisResult, setAnalysisResult] = useState<FormAnalysis | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState<boolean>(false);
-  const [languageMode, setLanguageMode] = useState<'bilingual' | 'english' | 'hindi'>('bilingual');
+  const [languageMode, setLanguageMode] = useState<'bilingual' | 'english' | 'hindi'>('english');
 
   const [apiModalOpen, setApiModalOpen] = useState<boolean>(false);
   const [apiKeyInput, setApiKeyInput] = useState<string>(() => {
@@ -1176,20 +1178,25 @@ Ensure the final output is 100% compliant with the provided JSON response schema
       </div>
 
       {/* Main Header */}
-      <header className="bg-natural-card border-b border-natural-border py-6 px-4 md:px-8" id="app-header">
+      <header className="bg-natural-card border-b border-natural-border py-4 px-4 md:px-8 shadow-sm" id="app-header">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-natural-bg text-primary rounded-xl border border-natural-border flex items-center justify-center">
-              <Sparkles className="w-8 h-8 text-primary animate-pulse" />
+          <div className="flex items-center gap-3.5">
+            <div className="relative w-12 h-12 rounded-xl overflow-hidden shadow-md border border-natural-border flex items-center justify-center bg-white shrink-0">
+              <img 
+                src={formFixerLogo} 
+                alt="Form-Fixer Logo" 
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-serif font-bold tracking-tight text-primary">Form-Fixer</h1>
-                <span className="text-[10px] bg-[#FEF9F6] text-[#F27D26] border border-[#F27D26]/20 font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider font-mono">
-                  Smart Bharat Prototype
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-sans font-bold tracking-tight text-primary">Form-Fixer</h1>
+                <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200/50 font-bold px-2 py-0.5 rounded-md uppercase tracking-wider font-mono">
+                  Smart Bharat Digital Platform
                 </span>
               </div>
-              <p className="text-xs text-accent font-medium">AI-Powered Civic Assistant & Bilingual Form Completeness Validator</p>
+              <p className="text-xs text-accent font-medium mt-0.5">National Civic Document Completeness & Bilingual Self-Correction Portal</p>
             </div>
           </div>
 
@@ -1231,6 +1238,38 @@ Ensure the final output is 100% compliant with the provided JSON response schema
         </div>
       </header>
 
+      {/* Premium Hero Stats Banner */}
+      <section className="bg-gradient-to-r from-primary to-[#1E3A8A] text-white py-8 px-4 md:px-8 border-b border-primary/20 shadow-inner" id="hero-dashboard-banner">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="space-y-2 text-center md:text-left">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/10 backdrop-blur-xs border border-white/20 text-[10px] font-extrabold uppercase tracking-widest text-amber-400">
+              <Sparkles className="w-3.5 h-3.5" />
+              {t('Smart Bharat AI Portal', 'स्मार्ट भारत एआई पोर्टल')}
+            </div>
+            <h2 className="text-xl md:text-2xl font-sans font-extrabold tracking-tight">
+              {t('Bilingual Form Completeness & Document Self-Correction', 'द्विभाषी फ़ॉर्म पूर्णता और दस्तावेज़ स्व-सुधार')}
+            </h2>
+            <p className="text-xs md:text-sm text-slate-300 max-w-2xl font-medium leading-relaxed">
+              {t('Avoid costly rejection of your crucial civic applications. Upload any government form image or take a photo, scan instantly for missing fields, correct mismatched data, and align perfectly with official department guidelines.', 'अपनी सरकारी आवेदनों के खारिज होने से बचें। किसी भी फ़ॉर्म की तस्वीर अपलोड करें, छूटे हुए खानों की जाँच करें, और तुरंत आधिकारिक नियमों के अनुसार सुधार करें।')}
+            </p>
+          </div>
+          <div className="flex items-center gap-4 shrink-0 w-full md:w-auto overflow-x-auto pb-2 md:pb-0 scrollbar-none">
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 min-w-[125px] text-center backdrop-blur-xs flex-1 md:flex-initial shadow-xs">
+              <div className="text-2xl font-black font-mono text-amber-400">99.4%</div>
+              <div className="text-[10px] text-slate-300 font-extrabold uppercase tracking-wider mt-1">Accuracy SLA</div>
+            </div>
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 min-w-[125px] text-center backdrop-blur-xs flex-1 md:flex-initial shadow-xs">
+              <div className="text-2xl font-black font-mono text-emerald-400">Zero</div>
+              <div className="text-[10px] text-slate-300 font-extrabold uppercase tracking-wider mt-1">Data Storage</div>
+            </div>
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 min-w-[125px] text-center backdrop-blur-xs flex-1 md:flex-initial shadow-xs">
+              <div className="text-2xl font-black font-mono text-cyan-400">Bhasini</div>
+              <div className="text-[10px] text-slate-300 font-extrabold uppercase tracking-wider mt-1">Standards</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Main Content Area */}
       <main className="flex-1 py-8 px-4 md:px-8 max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-8" id="main-content">
         
@@ -1263,7 +1302,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
               <button
                 onClick={() => setIsServiceDropdownOpen(!isServiceDropdownOpen)}
                 type="button"
-                className="w-full text-left p-3.5 rounded-xl border-2 border-primary bg-natural-bg/40 hover:bg-natural-bg/80 transition-all flex items-center justify-between gap-3 text-natural-dark shadow-inner cursor-pointer"
+                className="w-full text-left p-3.5 rounded-xl border border-natural-border bg-white hover:border-primary/50 transition-all flex items-center justify-between gap-3 text-natural-dark shadow-sm cursor-pointer hover:shadow-md"
               >
                 <div className="flex items-start gap-2.5 min-w-0">
                   <FileText className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
@@ -1351,96 +1390,168 @@ Ensure the final output is 100% compliant with the provided JSON response schema
           <div className="bg-[#FFFFFF] rounded-2xl p-6 text-natural-dark shadow-xs border border-natural-border">
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="w-5 h-5 text-primary" />
-              <h3 className="text-md font-serif font-semibold text-primary">Preset Simulator / त्वरित सिम्युलेटर</h3>
+              <h3 className="text-md font-sans font-bold text-primary">
+                {t('Interactive Simulation Lab', 'त्वरित सिम्युलेटर प्रयोगशाला')}
+              </h3>
             </div>
             
-            <p className="text-xs text-accent mb-4">
-              No government form on hand? Click a scenario below to render a realistic mock document on an HTML canvas instantly and send it to the vision engine.
+            <p className="text-xs text-accent mb-4 leading-relaxed">
+              {t('No government application form on hand? Select one of our curated verification scenarios below to render a highly realistic mock document on an HTML canvas instantly.', 'आपके पास सरकारी आवेदन पत्र नहीं है? तुरंत एक यथार्थवादी दस्तावेज़ रेंडर करने के लिए नीचे दिए गए परिदृश्यों में से एक का चयन करें।')}
             </p>
  
             <div className="grid grid-cols-1 gap-2.5 max-h-[420px] overflow-y-auto pr-1">
+              {/* Aadhaar Incomplete */}
               <button
                 onClick={() => handleTriggerPreset('aadhaar_incomplete')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
+                className="w-full text-left p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-50 border-l-4 border-l-amber-500 border-y border-r border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer hover:shadow-xs"
               >
-                <div>
-                  <div className="font-semibold text-amber-700">🔴 Aadhaar Card (Incomplete)</div>
-                  <div className="text-[10px] text-accent mt-0.5">UIDAI Form: Missing signature, exposed unmasked number.</div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-natural-dark text-xs">
+                      {t('Aadhaar Card Update', 'आधार कार्ड अपडेट')}
+                    </span>
+                    <span className="text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200/40">
+                      {t('Incomplete', 'अपूर्ण')}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-accent leading-relaxed">
+                    {t('UIDAI Form: Missing signature with exposed unmasked numbers.', 'यूआईडीएआई फॉर्म: बिना मास्क की संख्या और हस्ताक्षर गायब।')}
+                  </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
+                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors group-hover:translate-x-0.5" />
               </button>
  
+              {/* Passport Blank Address */}
               <button
                 onClick={() => handleTriggerPreset('passport_missing_address')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
+                className="w-full text-left p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-50 border-l-4 border-l-amber-500 border-y border-r border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer hover:shadow-xs"
               >
-                <div>
-                  <div className="font-semibold text-orange-700">🟡 Passport Form (Blank Address)</div>
-                  <div className="text-[10px] text-accent mt-0.5">Form 1: Permanent Address field left completely empty.</div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-natural-dark text-xs">
+                      {t('Passport Application', 'पासपोर्ट आवेदन पत्र')}
+                    </span>
+                    <span className="text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200/40">
+                      {t('Blank Fields', 'खाली इनपुट')}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-accent leading-relaxed">
+                    {t('Form 1: Permanent Address field left completely empty.', 'फॉर्म 1: स्थायी पता क्षेत्र पूरी तरह से खाली छोड़ दिया गया है।')}
+                  </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
+                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors group-hover:translate-x-0.5" />
               </button>
  
+              {/* Driving License Complete */}
               <button
                 onClick={() => handleTriggerPreset('driving_complete')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
+                className="w-full text-left p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-50 border-l-4 border-l-emerald-500 border-y border-r border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer hover:shadow-xs"
               >
-                <div>
-                  <div className="font-semibold text-emerald-700">🟢 Driving License (Complete)</div>
-                  <div className="text-[10px] text-accent mt-0.5">Form 4: Fully filled details, signed & verified.</div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-natural-dark text-xs">
+                      {t('Driving License', 'ड्राइविंग लाइसेंस फॉर्म')}
+                    </span>
+                    <span className="text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200/40">
+                      {t('Compliant', 'सत्यापित')}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-accent leading-relaxed">
+                    {t('Form 4: Fully filled details, signed & verified.', 'फॉर्म 4: पूरी तरह से भरे हुए विवरण, हस्ताक्षरित और सत्यापित।')}
+                  </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
+                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors group-hover:translate-x-0.5" />
               </button>
-
+ 
+              {/* Voter ID Incomplete */}
               <button
                 onClick={() => handleTriggerPreset('voter_id_incomplete')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
+                className="w-full text-left p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-50 border-l-4 border-l-orange-500 border-y border-r border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer hover:shadow-xs"
               >
-                <div>
-                  <div className="font-semibold text-[#C2410C]">🔴 Voter ID Form 6 (Incomplete)</div>
-                  <div className="text-[10px] text-accent mt-0.5">Form 6 Electoral Roll: Age Proof document missing.</div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-natural-dark text-xs">
+                      {t('Voter ID Form 6', 'वोटर आईडी फॉर्म 6')}
+                    </span>
+                    <span className="text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-orange-50 text-orange-800 border border-orange-200/40">
+                      {t('Missing Annexure', 'अनुबंध गायब')}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-accent leading-relaxed">
+                    {t('Form 6 Electoral Roll: Age Proof document missing.', 'फॉर्म 6 मतदाता सूची: आयु प्रमाण पत्र गायब है।')}
+                  </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
+                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors group-hover:translate-x-0.5" />
               </button>
-
+ 
+              {/* Income Certificate Rejected */}
               <button
                 onClick={() => handleTriggerPreset('income_cert_unapproved')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
+                className="w-full text-left p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-50 border-l-4 border-l-rose-500 border-y border-r border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer hover:shadow-xs"
               >
-                <div>
-                  <div className="font-semibold text-[#B45309]">🟠 Income Certificate (Rejected)</div>
-                  <div className="text-[10px] text-accent mt-0.5">Revenue Application: Missing official Lekhpal stamp.</div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-natural-dark text-xs">
+                      {t('Income Certificate', 'आय प्रमाण पत्र आवेदन')}
+                    </span>
+                    <span className="text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-rose-50 text-rose-800 border border-rose-200/40">
+                      {t('No Officer Seal', 'अपुष्ट राजस्व')}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-accent leading-relaxed">
+                    {t('Revenue Application: Missing official Lekhpal stamp.', 'राजस्व आवेदन: आधिकारिक लेखपाल स्टांप गायब है।')}
+                  </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
+                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors group-hover:translate-x-0.5" />
               </button>
-
+ 
+              {/* Ayushman Card Complete */}
               <button
                 onClick={() => handleTriggerPreset('ayushman_complete')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
+                className="w-full text-left p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-50 border-l-4 border-l-emerald-500 border-y border-r border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer hover:shadow-xs"
               >
-                <div>
-                  <div className="font-semibold text-[#0F766E]">🟢 Ayushman Card (Complete)</div>
-                  <div className="text-[10px] text-accent mt-0.5">Golden Card application: fully stamped, signed & verified.</div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-natural-dark text-xs">
+                      {t('Ayushman Bharat Golden Card', 'आयुष्मान गोल्डन कार्ड')}
+                    </span>
+                    <span className="text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200/40">
+                      {t('Fully Verified', 'पूर्ण सत्यापित')}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-accent leading-relaxed">
+                    {t('Golden Card application: fully stamped, signed & verified.', 'गोल्डन कार्ड आवेदन: पूरी तरह से सत्यापित और हस्ताक्षरित।')}
+                  </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
+                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors group-hover:translate-x-0.5" />
               </button>
- 
+  
+              {/* Wrong Document */}
               <button
                 onClick={() => handleTriggerPreset('wrong_document')}
                 disabled={isAnalyzing}
-                className="w-full text-left p-3 rounded-xl bg-natural-bg/60 hover:bg-natural-bg hover:scale-[1.01] active:scale-[0.99] border border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer"
+                className="w-full text-left p-3.5 rounded-xl bg-slate-50/50 hover:bg-slate-50 border-l-4 border-l-rose-600 border-y border-r border-natural-border text-xs transition-all flex items-center justify-between group disabled:opacity-50 text-natural-dark cursor-pointer hover:shadow-xs"
               >
-                <div>
-                  <div className="font-semibold text-rose-700">❌ Electricity Bill (Invalid Doc)</div>
-                  <div className="text-[10px] text-accent mt-0.5">Invoice: Uploading utility invoice instead of form.</div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-natural-dark text-xs">
+                      {t('Electricity Bill', 'बिजली बिल रसीद')}
+                    </span>
+                    <span className="text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200/40">
+                      {t('Invalid Doc Type', 'गलत दस्तावेज़')}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-accent leading-relaxed">
+                    {t('Invoice: Uploading utility invoice instead of government form.', 'इनवॉइस: आवेदन पत्र के स्थान पर उपयोगिता बिल अपलोड करना।')}
+                  </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors" />
+                <ArrowRight className="w-4 h-4 text-accent group-hover:text-primary transition-colors group-hover:translate-x-0.5" />
               </button>
             </div>
           </div>
@@ -2100,7 +2211,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                       </div>
 
                       {/* Security Compliance Panel */}
-                      <div className="p-4 rounded-xl border border-dashed border-[#5A5A40]/20 bg-[#FBFBF8] flex flex-col justify-between">
+                      <div className="p-4 rounded-xl border border-dashed border-emerald-500/20 bg-emerald-50/10 flex flex-col justify-between">
                         <div className="space-y-2">
                           <div className="flex items-center gap-1.5 text-emerald-700 text-xs font-bold">
                             <ShieldCheck className="w-4.5 h-4.5 text-emerald-600" />
@@ -2826,7 +2937,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <p>© 2026 Form-Fixer Project. Built for Smart Bharat Civic Service Improvement.</p>
           <div className="flex items-center justify-center gap-3">
-            <span className="text-[10px] bg-[#F5F8F5] text-[#5A5A40] border border-[#5A5A40]/10 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider font-mono">
+            <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200/50 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider font-mono">
               Bhasini & UIDAI Standards
             </span>
             <span className="text-[10px] bg-natural-bg text-primary border border-natural-border font-bold px-2 py-0.5 rounded-full uppercase tracking-wider font-mono">
