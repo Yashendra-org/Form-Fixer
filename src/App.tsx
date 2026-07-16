@@ -35,7 +35,8 @@ import {
   RotateCw,
   CornerDownLeft,
   X,
-  Trash2
+  Trash2,
+  Key
 } from 'lucide-react';
 
 import {
@@ -129,6 +130,19 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [languageMode, setLanguageMode] = useState<'bilingual' | 'english' | 'hindi'>('bilingual');
+
+  const [apiModalOpen, setApiModalOpen] = useState<boolean>(false);
+  const [apiKeyInput, setApiKeyInput] = useState<string>(() => {
+    return localStorage.getItem('VITE_GEMINI_API_KEY') || '';
+  });
+
+  // --- Translation Helper ---
+  const t = (en: string, hi: string): string => {
+    if (languageMode === 'english') return en;
+    if (languageMode === 'hindi') return hi;
+    if (en === hi) return en;
+    return `${en} / ${hi}`;
+  };
 
   // --- New Premium Feature States ---
   // 1. Image Preview & Interactive Modal States
@@ -1179,26 +1193,39 @@ Ensure the final output is 100% compliant with the provided JSON response schema
             </div>
           </div>
 
-          {/* Bilingual / English / Hindi view modes */}
-          <div className="flex items-center gap-2 self-start md:self-auto bg-natural-bg p-1.5 rounded-lg border border-natural-border">
-            <Languages className="w-4 h-4 text-accent ml-2" />
+          {/* Bilingual / English / Hindi view modes & API Setup */}
+          <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
+            <div className="flex items-center gap-2 bg-natural-bg p-1.5 rounded-lg border border-natural-border">
+              <Languages className="w-4 h-4 text-accent ml-2" />
+              <button
+                onClick={() => setLanguageMode('bilingual')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${languageMode === 'bilingual' ? 'bg-natural-card text-natural-dark shadow-xs' : 'text-accent hover:text-natural-dark'}`}
+              >
+                Bilingual (Eng+हिन्दी)
+              </button>
+              <button
+                onClick={() => setLanguageMode('english')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${languageMode === 'english' ? 'bg-natural-card text-natural-dark shadow-xs' : 'text-accent hover:text-natural-dark'}`}
+              >
+                English
+              </button>
+              <button
+                onClick={() => setLanguageMode('hindi')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${languageMode === 'hindi' ? 'bg-natural-card text-natural-dark shadow-xs' : 'text-accent hover:text-natural-dark'}`}
+              >
+                हिन्दी
+              </button>
+            </div>
+
             <button
-              onClick={() => setLanguageMode('bilingual')}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${languageMode === 'bilingual' ? 'bg-natural-card text-natural-dark shadow-xs' : 'text-accent hover:text-natural-dark'}`}
+              onClick={() => setApiModalOpen(true)}
+              className={`p-2 bg-natural-bg hover:bg-natural-bg/80 text-accent hover:text-primary rounded-lg border border-natural-border flex items-center gap-1.5 transition-all text-xs font-semibold cursor-pointer ${localStorage.getItem('VITE_GEMINI_API_KEY') ? 'border-emerald-500/20 text-emerald-600 bg-emerald-50/20' : ''}`}
+              title="Configure Gemini API Key for Client Fallback"
             >
-              Bilingual (Eng+हिन्दी)
-            </button>
-            <button
-              onClick={() => setLanguageMode('english')}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${languageMode === 'english' ? 'bg-natural-card text-natural-dark shadow-xs' : 'text-accent hover:text-natural-dark'}`}
-            >
-              English
-            </button>
-            <button
-              onClick={() => setLanguageMode('hindi')}
-              className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${languageMode === 'hindi' ? 'bg-natural-card text-natural-dark shadow-xs' : 'text-accent hover:text-natural-dark'}`}
-            >
-              हिन्दी
+              <Key className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">
+                {localStorage.getItem('VITE_GEMINI_API_KEY') ? 'API Key Active' : 'API Setup'}
+              </span>
             </button>
           </div>
         </div>
@@ -1218,7 +1245,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                   1
                 </span>
                 <h2 className="text-lg font-serif font-semibold text-natural-dark">
-                  {languageMode === 'hindi' ? 'सरकारी सेवा चुनें' : 'Select Government Service'}
+                  {t('Select Government Service', 'सरकारी सेवा चुनें')}
                 </h2>
               </div>
               <span className="text-[10px] bg-primary/10 text-primary font-extrabold px-2 py-0.5 rounded-full font-mono">
@@ -1227,9 +1254,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
             </div>
             
             <p className="text-xs text-accent mb-4">
-              {languageMode === 'hindi' 
-                ? 'वह सेवा चुनें जिसके लिए आप आवेदन कर रहे हैं। हम इस विशिष्ट फ़ॉर्म के नियमों के अनुसार विश्लेषण करेंगे।' 
-                : 'Select the service you are applying for. The AI will evaluate your document strictly against this service\'s guidelines.'}
+              {t('Select the service you are applying for. The AI will evaluate your document strictly against this service\'s guidelines.', 'वह सेवा चुनें जिसके लिए आप आवेदन कर रहे हैं। हम इस विशिष्ट फ़ॉर्म के नियमों के अनुसार विश्लेषण करेंगे।')}
             </p>
 
             {/* Custom Searchable Select Box */}
@@ -1245,9 +1270,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                   <div className="truncate">
                     <div className="font-bold text-sm text-natural-dark">
                       {SERVICES.find(s => s.id === selectedService) ? (
-                        languageMode === 'hindi'
-                          ? SERVICES.find(s => s.id === selectedService)?.nameHi
-                          : SERVICES.find(s => s.id === selectedService)?.name
+                        t(SERVICES.find(s => s.id === selectedService)?.name || '', SERVICES.find(s => s.id === selectedService)?.nameHi || '')
                       ) : selectedService}
                     </div>
                     <div className="text-[10px] text-accent font-mono mt-0.5 uppercase tracking-wide">
@@ -1268,7 +1291,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                       type="text"
                       value={serviceSearchQuery}
                       onChange={(e) => setServiceSearchQuery(e.target.value)}
-                      placeholder={languageMode === 'hindi' ? 'सर्च सेवा... (उदा. आधार)' : 'Search services... (e.g., Aadhaar)'}
+                      placeholder={t('Search services... (e.g., Aadhaar)', 'सर्च सेवा... (उदा. आधार)')}
                       className="w-full pl-9 pr-4 py-2 bg-natural-bg text-natural-dark text-xs font-semibold rounded-lg border border-natural-border focus:outline-none focus:border-primary transition-all"
                     />
                     {serviceSearchQuery && (
@@ -1302,7 +1325,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                         >
                           <div className="min-w-0">
                             <div className="font-semibold text-natural-dark truncate">
-                              {languageMode === 'hindi' ? srv.nameHi : srv.name}
+                              {t(srv.name, srv.nameHi)}
                             </div>
                             <div className="text-[10px] text-accent font-mono mt-0.5 truncate">{srv.dept}</div>
                           </div>
@@ -2913,6 +2936,106 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                   : 'This is the original document preview layout analyzed by our Civic Assistant AI.'}
               </div>
             </div>
+          </motion.div>
+        )}
+
+        {apiModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="bg-natural-card rounded-2xl border border-natural-border p-6 shadow-2xl max-w-md w-full relative"
+            >
+              <button
+                onClick={() => setApiModalOpen(false)}
+                className="absolute top-4 right-4 p-1 rounded-full text-accent hover:text-natural-dark hover:bg-natural-bg transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="p-2 bg-primary/10 text-primary rounded-xl">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-serif font-semibold text-natural-dark">
+                    {languageMode === 'hindi' ? 'जेमिनी एपीआई कुंजी सेटअप' : 'Gemini API Key Settings'}
+                  </h3>
+                  <p className="text-xs text-accent">
+                    {languageMode === 'hindi' ? 'स्टैटिक होस्ट (Netlify) के लिए क्लाइंट-साइड कॉन्फ़िगरेशन' : 'Client-side fallback config for static host deployments'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-4 text-xs text-natural-dark">
+                <p className="leading-relaxed bg-amber-50/50 border border-amber-200/50 p-3 rounded-xl text-amber-800">
+                  {languageMode === 'hindi' ? (
+                    <>
+                      <strong>नेटलिफ़ाय (Netlify) पर तैनात:</strong> चूंकि यह एक स्टैटिक सर्वर रहित होस्टिंग है, आपका एक्सप्रेस बैकएंड यहाँ उपलब्ध नहीं है। पूर्ण सत्यापन कार्यात्मकता को सीधे आपके ब्राउज़र में सक्रिय करने के लिए, आपको अपनी <strong>Gemini API Key</strong> प्रदान करने की आवश्यकता है।
+                    </>
+                  ) : (
+                    <>
+                      <strong>Netlify Deployment:</strong> Since this is a static hosting platform, the Express backend is not running here. To enable document pre-checks and deep analyses directly from your browser, please enter your personal <strong>Gemini API Key</strong> below.
+                    </>
+                  )}
+                </p>
+
+                <div className="space-y-1.5">
+                  <label className="block font-bold text-natural-dark">
+                    {languageMode === 'hindi' ? 'जेमिनी एपीआई कुंजी (Gemini API Key)' : 'Gemini API Key'}
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="AIzaSy..."
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    className="w-full p-3 rounded-xl border border-natural-border bg-natural-bg/50 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all font-mono text-xs"
+                  />
+                  <p className="text-[10px] text-accent leading-relaxed">
+                    {languageMode === 'hindi' ? (
+                      <>
+                        यह कुंजी केवल आपके इस ब्राउज़र (localStorage) में सुरक्षित रूप से सहेजी जाएगी और सीधे गूगल के सुरक्षित एपीआई सर्वर पर भेजी जाएगी।
+                      </>
+                    ) : (
+                      <>
+                        Saved securely in your browser's local storage and sent directly to Google's official endpoints.
+                      </>
+                    )}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-natural-border">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.removeItem('VITE_GEMINI_API_KEY');
+                      setApiKeyInput('');
+                      setApiModalOpen(false);
+                    }}
+                    className="px-3.5 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                  >
+                    {languageMode === 'hindi' ? 'साफ़ करें' : 'Clear Key'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      localStorage.setItem('VITE_GEMINI_API_KEY', apiKeyInput.trim());
+                      setApiModalOpen(false);
+                    }}
+                    className="px-4 py-2 text-xs font-semibold bg-primary hover:bg-primary/95 text-white rounded-xl shadow-sm transition-all cursor-pointer active:scale-95"
+                  >
+                    {languageMode === 'hindi' ? 'सहेजें (Save)' : 'Save Settings'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
