@@ -30,6 +30,103 @@ function getAiClient(): GoogleGenAI {
   return aiClient;
 }
 
+// Custom direct fetch helper to bypass Google Auth SDK's automatic Application Default Credentials (ADC)
+// discovery inside Cloud Run, preventing ACCESS_TOKEN_TYPE_UNSUPPORTED errors.
+async function generateContentServer({
+  image,
+  mimeType,
+  systemInstruction,
+  prompt,
+  schema,
+  history,
+  apiKey,
+}: {
+  image: string;
+  mimeType: string;
+  systemInstruction: string;
+  prompt: string;
+  schema?: any;
+  history?: any[];
+  apiKey?: string;
+}): Promise<string> {
+  const finalApiKey = apiKey || process.env.GEMINI_API_KEY;
+  if (!finalApiKey) {
+    throw new Error("GEMINI_API_KEY environment variable is required.");
+  }
+
+  // Strip base64 prefix if present
+  const cleanBase64 = image.includes(";base64,") ? image.split(";base64,")[1] : image;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${finalApiKey}`;
+
+  const imagePart = {
+    inlineData: {
+      mimeType: mimeType,
+      data: cleanBase64,
+    },
+  };
+
+  const contents: any[] = [];
+  if (history && Array.isArray(history)) {
+    for (const turn of history) {
+      contents.push({
+        role: turn.role === "user" ? "user" : "model",
+        parts: [{ text: turn.text }],
+      });
+    }
+  }
+
+  // Add current image and query
+  contents.push({
+    role: "user",
+    parts: [imagePart, { text: prompt }],
+  });
+
+  const payload: any = {
+    contents,
+    systemInstruction: {
+      parts: [
+        {
+          text: systemInstruction,
+        },
+      ],
+    },
+  };
+
+  if (schema) {
+    payload.generationConfig = {
+      responseMimeType: "application/json",
+      responseSchema: schema,
+    };
+  }
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": "aistudio-build",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    let parsedErr;
+    try {
+      parsedErr = JSON.parse(errorText);
+    } catch (e) {}
+    const geminiMessage = parsedErr?.error?.message || errorText;
+    throw new Error(`Gemini Server API Call Failed (${response.status}): ${geminiMessage}`);
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("Empty response from Gemini server API.");
+  }
+
+  return text;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -53,16 +150,15 @@ async function startServer() {
         return;
       }
 
-      // Check if API Key is configured
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
+            // Check if API Key is configured
+      const clientApiKey = (req.headers["x-api-key"] as string) || (req.headers["authorization"] as string)?.replace("Bearer ", "") || "";
+      const finalApiKey = clientApiKey || process.env.GEMINI_API_KEY;
+      if (!finalApiKey) {
         res.status(500).json({
-          error: "GEMINI_API_KEY is not configured on the server. Please add your Gemini API Key in the Secrets panel in AI Studio Settings."
+          error: "GEMINI_API_KEY is not configured on the server. Please add your Gemini API Key in the Secrets panel in AI Studio Settings or configure it in the API Setup modal."
         });
         return;
       }
-
-      const ai = getAiClient();
 
       const systemInstruction = `You are "Form-Fixer Validator", a high-performance document classifier.
 Analyze the provided low-resolution thumbnail image and determine if the document matches or is valid for the user's selected government service: "${serviceType}".
@@ -73,65 +169,51 @@ Evaluation criteria:
 
 You must respond in the specified JSON schema.`;
 
-      const cleanBase64 = image.includes(";base64,") ? image.split(";base64,")[1] : image;
-
-      const imagePart = {
-        inlineData: {
-          mimeType: mimeType,
-          data: cleanBase64,
-        },
-      };
-
-      const promptPart = {
-        text: `Pre-validate if this thumbnail is a valid document/form for "${serviceType}".`,
-      };
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: {
-          parts: [imagePart, promptPart],
-        },
-        config: {
-          systemInstruction: systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              isValid: {
-                type: Type.BOOLEAN,
-                description: "True if the document in the thumbnail matches the expected service type, false otherwise."
-              },
-              documentType: {
-                type: Type.STRING,
-                description: "Identified document type name (e.g., 'Aadhaar Enrollment Form', 'PAN Card Form 49A', 'Incorrect Document/Photo')."
-              },
-              reason: {
-                type: Type.STRING,
-                description: "Brief explanation in English why it is valid or invalid."
-              },
-              reasonHi: {
-                type: Type.STRING,
-                description: "Brief explanation in Hindi why it is valid or invalid."
-              }
+      const responseText = await generateContentServer({
+        image,
+        mimeType,
+        systemInstruction,
+        prompt: `Pre-validate if this thumbnail is a valid document/form for "${serviceType}".`,
+        apiKey: finalApiKey,
+        schema: {
+          type: "OBJECT",
+          properties: {
+            isValid: {
+              type: "BOOLEAN",
+              description: "True if the document in the thumbnail matches the expected service type, false otherwise."
             },
-            required: ["isValid", "documentType", "reason", "reasonHi"]
-          }
+            documentType: {
+              type: "STRING",
+              description: "Identified document type name in English (e.g., 'Aadhaar Enrollment Form', 'PAN Card Form 49A', 'Incorrect Document/Photo')."
+            },
+            documentTypeEn: {
+              type: "STRING",
+              description: "Identified document type name in English (e.g., 'Aadhaar Enrollment Form', 'PAN Card Form 49A')."
+            },
+            documentTypeHi: {
+              type: "STRING",
+              description: "Identified document type name in Hindi (e.g., 'आधार नामांकन फॉर्म', 'पैन कार्ड फॉर्म 49A')."
+            },
+            reason: {
+              type: "STRING",
+              description: "Brief explanation in English why it is valid or invalid."
+            },
+            reasonHi: {
+              type: "STRING",
+              description: "Brief explanation in Hindi why it is valid or invalid."
+            }
+          },
+          required: ["isValid", "documentType", "documentTypeEn", "documentTypeHi", "reason", "reasonHi"]
         }
       });
 
-      let responseText = response.text;
-      if (!responseText) {
-        res.status(500).json({ error: "Gemini did not return any readable pre-validation text." });
-        return;
+      let cleanedText = responseText.trim();
+      if (cleanedText.startsWith("```")) {
+        cleanedText = cleanedText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
       }
+      cleanedText = cleanedText.trim();
 
-      responseText = responseText.trim();
-      if (responseText.startsWith("```")) {
-        responseText = responseText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-      }
-      responseText = responseText.trim();
-
-      const parsedAnalysis = JSON.parse(responseText);
+      const parsedAnalysis = JSON.parse(cleanedText);
       res.json(parsedAnalysis);
 
     } catch (error: any) {
@@ -154,15 +236,14 @@ You must respond in the specified JSON schema.`;
       }
 
       // Check if API Key is configured
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
+      const clientApiKey = (req.headers["x-api-key"] as string) || (req.headers["authorization"] as string)?.replace("Bearer ", "") || "";
+      const finalApiKey = clientApiKey || process.env.GEMINI_API_KEY;
+      if (!finalApiKey) {
         res.status(500).json({
-          error: "GEMINI_API_KEY is not configured on the server. Please add your Gemini API Key in the Secrets panel in AI Studio Settings."
+          error: "GEMINI_API_KEY is not configured on the server. Please add your Gemini API Key in the Secrets panel in AI Studio Settings or configure it in the API Setup modal."
         });
         return;
       }
-
-      const ai = getAiClient();
 
       // Setup Gemini parameters and prompt
       const systemInstruction = `You are "Form-Fixer", an expert civic assistant and document validator designed to help citizens of India/Bharat successfully apply for government services.
@@ -188,115 +269,118 @@ Follow these strict visual inspection rules:
 
 Ensure the final output is 100% compliant with the provided JSON response schema.`;
 
-      // Construct inline image part for Gemini
-      // Strip base64 prefixes if present (e.g., 'data:image/png;base64,')
-      const cleanBase64 = image.includes(";base64,") ? image.split(";base64,")[1] : image;
-
-      const imagePart = {
-        inlineData: {
-          mimeType: mimeType,
-          data: cleanBase64,
-        },
-      };
-
-      const promptPart = {
-        text: `Analyze this uploaded document/form for the government service "${serviceType}". Please review it carefully, perform validation, redact sensitive credentials, and produce the detailed analysis.`,
-      };
-
-      // Call Gemini 3.5 Flash
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: {
-          parts: [imagePart, promptPart],
-        },
-        config: {
-          systemInstruction: systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              documentType: {
-                type: Type.STRING,
-                description: "Name/type of the document identified in the image, e.g., 'Driving License Application Form 4', 'Aadhaar Card Update Form'."
-              },
-              documentStatus: {
-                type: Type.STRING,
-                description: "Must be one of: 'COMPLETE', 'NEEDS_ATTENTION', 'INVALID_DOCUMENT'."
-              },
-              identifiedService: {
-                type: Type.STRING,
-                description: "Confirmed government service or application category."
-              },
-              detectedFields: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING, description: "Name of the field (e.g., 'Applicant Signature', 'Permanent Address', 'Photograph')." },
-                    status: { type: Type.STRING, description: "Status: 'FILLED', 'MISSING', or 'INCORRECT'." },
-                    details: { type: Type.STRING, description: "Detailed check explanation, e.g., 'Found signature in the right-bottom box' or 'Address line 2 is blank'." }
-                  },
-                  required: ["name", "status", "details"]
-                }
-              },
-              requiredSteps: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    stepNumber: { type: Type.INTEGER, description: "Order sequence of the step." },
-                    titleEn: { type: Type.STRING, description: "Action step title in English, e.g., 'Sign the Applicant Declaration box'." },
-                    titleHi: { type: Type.STRING, description: "Action step title in Hindi, e.g., 'आवेदक घोषणा पत्र पर हस्ताक्षर करें' " },
-                    descriptionEn: { type: Type.STRING, description: "Detailed guide in English." },
-                    descriptionHi: { type: Type.STRING, description: "Detailed guide in Hindi." }
-                  },
-                  required: ["stepNumber", "titleEn", "titleHi", "descriptionEn", "descriptionHi"]
-                }
-              },
-              redactedData: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    type: { type: Type.STRING, description: "Category of personal data (e.g., 'Aadhaar Card Number', 'PAN number', 'Phone Number')." },
-                    originalDetected: { type: Type.STRING, description: "Redacted representation of the detected text, e.g., 'XXXX-XXXX-9876'." },
-                    actionTaken: { type: Type.STRING, description: "Privacy action taken, e.g., 'Masked the first 8 digits for compliance with Aadhaar Act Section 32'." }
-                  },
-                  required: ["type", "originalDetected", "actionTaken"]
-                }
-              },
-              encouragementEn: { type: Type.STRING, description: "Polite, supportive encouragement in English, e.g., 'You are almost there! Just fill in the address and sign, and your application is ready to submit.'" },
-              encouragementHi: { type: Type.STRING, description: "Polite, supportive encouragement in Hindi." }
+      const responseText = await generateContentServer({
+        image,
+        mimeType,
+        systemInstruction,
+        prompt: `Analyze this uploaded document/form for the government service "${serviceType}". Please review it carefully, perform validation, redact sensitive credentials, and produce the detailed analysis.`,
+        apiKey: finalApiKey,
+        schema: {
+          type: "OBJECT",
+          properties: {
+            documentType: {
+              type: "STRING",
+              description: "Name/type of the document identified in the image in English, e.g., 'Driving License Application Form 4', 'Aadhaar Card Update Form'."
             },
-            required: [
-              "documentType",
-              "documentStatus",
-              "identifiedService",
-              "detectedFields",
-              "requiredSteps",
-              "redactedData",
-              "encouragementEn",
-              "encouragementHi"
-            ]
-          }
+            documentTypeEn: {
+              type: "STRING",
+              description: "Name/type of the document identified in the image in English, e.g., 'Driving License Application Form 4'."
+            },
+            documentTypeHi: {
+              type: "STRING",
+              description: "Name/type of the document identified in the image in Hindi, e.g., 'ड्राइविंग लाइसेंस आवेदन पत्र (फॉर्म 4)'."
+            },
+            documentStatus: {
+              type: "STRING",
+              description: "Must be one of: 'COMPLETE', 'NEEDS_ATTENTION', 'INVALID_DOCUMENT'."
+            },
+            identifiedService: {
+              type: "STRING",
+              description: "Confirmed government service or application category in English."
+            },
+            identifiedServiceEn: {
+              type: "STRING",
+              description: "Confirmed government service or application category in English."
+            },
+            identifiedServiceHi: {
+              type: "STRING",
+              description: "Confirmed government service or application category in Hindi."
+            },
+            detectedFields: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  name: { type: "STRING", description: "Name of the field in English (e.g., 'Applicant Signature', 'Permanent Address', 'Photograph')." },
+                  nameEn: { type: "STRING", description: "Name of the field in English (e.g., 'Applicant Signature', 'Permanent Address', 'Photograph')." },
+                  nameHi: { type: "STRING", description: "Name of the field in Hindi (e.g., 'आवेदक के हस्ताक्षर', 'स्थायी पता', 'फोटो')." },
+                  status: { type: "STRING", description: "Status: 'FILLED', 'MISSING', or 'INCORRECT'." },
+                  details: { type: "STRING", description: "Detailed check explanation in English, e.g., 'Found signature in the right-bottom box' or 'Address line 2 is blank'." },
+                  detailsEn: { type: "STRING", description: "Detailed check explanation in English, e.g., 'Found signature in the right-bottom box' or 'Address line 2 is blank'." },
+                  detailsHi: { type: "STRING", description: "Detailed check explanation in Hindi, e.g., 'दाहिनी-निचली बॉक्स में हस्ताक्षर मिले' या 'पता पंक्ति 2 खाली है'." }
+                },
+                required: ["name", "nameEn", "nameHi", "status", "details", "detailsEn", "detailsHi"]
+              }
+            },
+            requiredSteps: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  stepNumber: { type: "INTEGER", description: "Order sequence of the step." },
+                  titleEn: { type: "STRING", description: "Action step title in English, e.g., 'Sign the Applicant Declaration box'." },
+                  titleHi: { type: "STRING", description: "Action step title in Hindi, e.g., 'आवेदक घोषणा पत्र पर हस्ताक्षर करें' " },
+                  descriptionEn: { type: "STRING", description: "Detailed guide in English." },
+                  descriptionHi: { type: "STRING", description: "Detailed guide in Hindi." }
+                },
+                required: ["stepNumber", "titleEn", "titleHi", "descriptionEn", "descriptionHi"]
+              }
+            },
+            redactedData: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  type: { type: "STRING", description: "Category of personal data in English, e.g., 'Aadhaar Card Number', 'PAN number', 'Phone Number'." },
+                  typeEn: { type: "STRING", description: "Category of personal data in English, e.g., 'Aadhaar Card Number'." },
+                  typeHi: { type: "STRING", description: "Category of personal data in Hindi, e.g., 'आधार कार्ड संख्या'." },
+                  originalDetected: { type: "STRING", description: "Redacted representation of the detected text, e.g., 'XXXX-XXXX-9876'." },
+                  actionTaken: { type: "STRING", description: "Privacy action taken in English, e.g., 'Masked the first 8 digits for compliance with Aadhaar Act Section 32'." },
+                  actionTakenEn: { type: "STRING", description: "Privacy action taken in English, e.g., 'Masked the first 8 digits for compliance with Aadhaar Act Section 32'." },
+                  actionTakenHi: { type: "STRING", description: "Privacy action taken in Hindi, e.g., 'आधार अधिनियम की धारा 32 के अनुपालन के लिए पहले 8 अंकों को छुपाया गया'." }
+                },
+                required: ["type", "typeEn", "typeHi", "originalDetected", "actionTaken", "actionTakenEn", "actionTakenHi"]
+              }
+            },
+            encouragementEn: { type: "STRING", description: "Polite, supportive encouragement in English, e.g., 'You are almost there! Just fill in the address and sign, and your application is ready to submit.'" },
+            encouragementHi: { type: "STRING", description: "Polite, supportive encouragement in Hindi." }
+          },
+          required: [
+            "documentType",
+            "documentTypeEn",
+            "documentTypeHi",
+            "documentStatus",
+            "identifiedService",
+            "identifiedServiceEn",
+            "identifiedServiceHi",
+            "detectedFields",
+            "requiredSteps",
+            "redactedData",
+            "encouragementEn",
+            "encouragementHi"
+          ]
         }
       });
 
-      let responseText = response.text;
-      if (!responseText) {
-        res.status(500).json({ error: "Gemini did not return any readable analysis text." });
-        return;
-      }
-
       // Sanitize JSON by removing potential markdown wrapping blocks
-      responseText = responseText.trim();
-      if (responseText.startsWith("```")) {
-        responseText = responseText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      let cleanedText = responseText.trim();
+      if (cleanedText.startsWith("```")) {
+        cleanedText = cleanedText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
       }
-      responseText = responseText.trim();
+      cleanedText = cleanedText.trim();
 
       // Parse the JSON response safely
-      const parsedAnalysis = JSON.parse(responseText);
+      const parsedAnalysis = JSON.parse(cleanedText);
       res.json(parsedAnalysis);
 
     } catch (error: any) {
@@ -319,15 +403,14 @@ Ensure the final output is 100% compliant with the provided JSON response schema
       }
 
       // Check if API Key is configured
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
+      const clientApiKey = (req.headers["x-api-key"] as string) || (req.headers["authorization"] as string)?.replace("Bearer ", "") || "";
+      const finalApiKey = clientApiKey || process.env.GEMINI_API_KEY;
+      if (!finalApiKey) {
         res.status(500).json({
-          error: "GEMINI_API_KEY is not configured on the server. Please add your Gemini API Key in the Secrets panel in AI Studio Settings."
+          error: "GEMINI_API_KEY is not configured on the server. Please add your Gemini API Key in the Secrets panel in AI Studio Settings or configure it in the API Setup modal."
         });
         return;
       }
-
-      const ai = getAiClient();
 
       const systemInstruction = `You are "Form-Fixer AI", an expert Indian civic guide and document assistant.
 The user is asking questions about an uploaded form/document for the government service "${serviceType}".
@@ -340,43 +423,17 @@ When answering:
 4. Give specific, precise advice based on the selected service guidelines. If they ask where to sign, point them to the designated signature boxes.
 5. Keep answers highly readable, scannable, and clear. Use standard Markdown for bullet points and bolding.`;
 
-      // Clean base64 image prefix
-      const cleanBase64 = image.includes(";base64,") ? image.split(";base64,")[1] : image;
-      const imagePart = {
-        inlineData: {
-          mimeType: mimeType,
-          data: cleanBase64,
-        },
-      };
-
-      const contents: any[] = [];
-      
-      // If we have conversational history, include it
-      if (history && Array.isArray(history)) {
-        for (const turn of history) {
-          contents.push({
-            role: turn.role === "user" ? "user" : "model",
-            parts: [{ text: turn.text }]
-          });
-        }
-      }
-
-      // Add current image and user's query
-      contents.push({
-        role: "user",
-        parts: [imagePart, { text: message }]
+      const responseText = await generateContentServer({
+        image,
+        mimeType,
+        systemInstruction,
+        prompt: message,
+        history: history,
+        apiKey: finalApiKey,
       });
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: contents,
-        config: {
-          systemInstruction: systemInstruction,
-        }
-      });
-
-      const responseText = response.text || "I was unable to analyze your query. Please try again.";
-      res.json({ text: responseText });
+      const finalResponseText = responseText || "I was unable to analyze your query. Please try again.";
+      res.json({ text: finalResponseText });
 
     } catch (error: any) {
       console.error("Error in Q&A chat:", error);

@@ -51,8 +51,12 @@ import formFixerLogo from './assets/images/form_fixer_logo_1784189901251.jpg';
 // --- TS Interfaces ---
 interface DetectedField {
   name: string;
+  nameEn?: string;
+  nameHi?: string;
   status: 'FILLED' | 'MISSING' | 'INCORRECT';
   details: string;
+  detailsEn?: string;
+  detailsHi?: string;
 }
 
 interface RequiredStep {
@@ -65,14 +69,22 @@ interface RequiredStep {
 
 interface RedactedData {
   type: string;
+  typeEn?: string;
+  typeHi?: string;
   originalDetected: string;
   actionTaken: string;
+  actionTakenEn?: string;
+  actionTakenHi?: string;
 }
 
 interface FormAnalysis {
   documentType: string;
+  documentTypeEn?: string;
+  documentTypeHi?: string;
   documentStatus: 'COMPLETE' | 'NEEDS_ATTENTION' | 'INVALID_DOCUMENT';
   identifiedService: string;
+  identifiedServiceEn?: string;
+  identifiedServiceHi?: string;
   detectedFields: DetectedField[];
   requiredSteps: RequiredStep[];
   redactedData: RedactedData[];
@@ -107,16 +119,11 @@ const SERVICES = [
 
 // --- Encouragement loading messages shown during vision analysis ---
 const LOADING_MESSAGES = [
-  'Verifying document structure & layout...',
-  'दस्तावेज़ की संरचना और लेआउट का सत्यापन किया जा रहा है...',
-  'Inspecting required signatures and thumbprints...',
-  'आवश्यक हस्ताक्षर और अंगूठे के निशान की जांच की जा रही है...',
-  'Checking for missing form inputs and checkboxes...',
-  'खाली छोड़े गए फ़ॉर्म इनपुट और चेकबॉक्स की जांच की जा रही है...',
-  'Detecting and redacting sensitive personal ID credentials for safety...',
-  'सुरक्षा के लिए संवेदनशील व्यक्तिगत पहचान क्रेडेंशियल्स को छुपाया जा रहा है...',
-  'Formulating bilingual corrective steps in Hindi & English...',
-  'हिंदी और अंग्रेजी में सुधारात्मक कदम तैयार किए जा रहे हैं...'
+  { en: 'Verifying document structure & layout...', hi: 'दस्तावेज़ की संरचना और लेआउट का सत्यापन किया जा रहा है...' },
+  { en: 'Inspecting required signatures and thumbprints...', hi: 'आवश्यक हस्ताक्षर और अंगूठे के निशान की जांच की जा रही है...' },
+  { en: 'Checking for missing form inputs and checkboxes...', hi: 'खाली छोड़े गए फ़ॉर्म इनपुट और चेकबॉक्स की जांच की जा रही है...' },
+  { en: 'Detecting and redacting sensitive personal ID credentials for safety...', hi: 'सुरक्षा के लिए संवेदनशील व्यक्तिगत पहचान क्रेडेंशियल्स को छुपाया जा रहा है...' },
+  { en: 'Formulating bilingual corrective steps in Hindi & English...', hi: 'हिंदी और अंग्रेजी में सुधारात्मक कदम तैयार किए जा रहे हैं...' }
 ];
 
 export default function App() {
@@ -174,6 +181,13 @@ export default function App() {
   const [systemAccuracy, setSystemAccuracy] = useState<number>(94.8);
   const [editedFields, setEditedFields] = useState<{[key: string]: string}>({});
   const [isAutoCorrected, setIsAutoCorrected] = useState<boolean>(false);
+
+  // --- Compression & Auto-retry States ---
+  const [originalSizeKb, setOriginalSizeKb] = useState<number | null>(null);
+  const [compressedSizeKb, setCompressedSizeKb] = useState<number | null>(null);
+  const [didCompress, setDidCompress] = useState<boolean>(false);
+  const [analysisAttempts, setAnalysisAttempts] = useState<number>(1);
+  const [isLowerResRetry, setIsLowerResRetry] = useState<boolean>(false);
 
   // Sync edited fields when analysisResult is updated
   useEffect(() => {
@@ -340,7 +354,8 @@ export default function App() {
       const response = await fetch('/api/chat-document', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-api-key': localStorage.getItem('VITE_GEMINI_API_KEY') || ''
         },
         body: JSON.stringify({
           image: uploadedImage,
@@ -492,9 +507,43 @@ When answering:
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        setUploadedImage(dataUrl);
+        const rawBase64 = canvas.toDataURL('image/jpeg', 0.9);
+        const originalSize = Math.round((rawBase64.length * 0.75) / 1024);
+        setOriginalSizeKb(originalSize);
+
+        // Run through auto compressor
+        const maxDimension = 1200;
+        let width = canvas.width;
+        let height = canvas.height;
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        
+        const compressCanvas = document.createElement('canvas');
+        compressCanvas.width = width;
+        compressCanvas.height = height;
+        const compressCtx = compressCanvas.getContext('2d');
+        if (compressCtx) {
+          compressCtx.drawImage(canvas, 0, 0, width, height);
+          const compressedBase64 = compressCanvas.toDataURL('image/jpeg', 0.85);
+          const compressedSize = Math.round((compressedBase64.length * 0.75) / 1024);
+          setUploadedImage(compressedBase64);
+          setCompressedSizeKb(compressedSize);
+          setDidCompress(true);
+        } else {
+          setUploadedImage(rawBase64);
+          setCompressedSizeKb(originalSize);
+          setDidCompress(false);
+        }
         setMimeType('image/jpeg');
+        setIsLowerResRetry(false);
+        setAnalysisAttempts(1);
         stopCamera();
       }
     }
@@ -533,6 +582,12 @@ When answering:
 
     // Render preset on canvas
     const base64Jpg = generateMockForm(presetType);
+    const presetSizeKb = Math.round((base64Jpg.length * 0.75) / 1024);
+    setOriginalSizeKb(presetSizeKb);
+    setCompressedSizeKb(presetSizeKb);
+    setDidCompress(false);
+    setIsLowerResRetry(false);
+    setAnalysisAttempts(1);
     setUploadedImage(base64Jpg);
     setMimeType('image/jpeg');
 
@@ -556,17 +611,21 @@ When answering:
     setErrorMsg(null);
     setAnalysisResult(null);
 
+    // Track original size
+    const originalSize = Math.round(file.size / 1024);
+    setOriginalSizeKb(originalSize);
+
     const reader = new FileReader();
     reader.onload = (event) => {
       if (event.target?.result) {
+        const originalBase64 = event.target.result as string;
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const maxDimension = 1000;
+          const maxDimension = 1200; // Optimal high-res resolution
           let width = img.width;
           let height = img.height;
 
-          // Downscale if dimensions exceed 1000px while maintaining original aspect ratio
           if (width > maxDimension || height > maxDimension) {
             if (width > height) {
               height = Math.round((height * maxDimension) / width);
@@ -583,11 +642,17 @@ When answering:
           if (ctx) {
             ctx.drawImage(img, 0, 0, width, height);
             const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85);
+            const compressedSize = Math.round((compressedBase64.length * 0.75) / 1024);
+            
             setUploadedImage(compressedBase64);
             setMimeType('image/jpeg');
+            setCompressedSizeKb(compressedSize);
+            setDidCompress(true);
+            setIsLowerResRetry(false);
+            setAnalysisAttempts(1);
           }
         };
-        img.src = event.target.result as string;
+        img.src = originalBase64;
       }
     };
     reader.readAsDataURL(file);
@@ -612,6 +677,54 @@ When answering:
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       processFile(e.dataTransfer.files[0]);
     }
+  };
+
+  // --- Client-side Image Compression & Downscaling Helper ---
+  const compressImage = (imageSrc: string, maxDim: number, quality: number, mime: string): Promise<string> => {
+    return new Promise((resolve) => {
+      try {
+        if (!imageSrc || !imageSrc.startsWith('data:')) {
+          resolve(imageSrc);
+          return;
+        }
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            let w = img.width;
+            let h = img.height;
+            if (w > maxDim || h > maxDim) {
+              if (w > h) {
+                h = Math.round((h * maxDim) / w);
+                w = maxDim;
+              } else {
+                w = Math.round((w * maxDim) / h);
+                h = maxDim;
+              }
+            }
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, w, h);
+              resolve(canvas.toDataURL(mime || 'image/jpeg', quality));
+            } else {
+              resolve(imageSrc);
+            }
+          } catch (err) {
+            console.error('Error drawing compressed image:', err);
+            resolve(imageSrc);
+          }
+        };
+        img.onerror = () => {
+          resolve(imageSrc);
+        };
+        img.src = imageSrc;
+      } catch (err) {
+        console.error('Compression helper exception:', err);
+        resolve(imageSrc);
+      }
+    });
   };
 
   // --- Create low-resolution thumbnail helper for Tiered Processing ---
@@ -670,18 +783,21 @@ When answering:
     setAnalysisStage('validating');
     setErrorMsg(null);
     setAnalysisResult(null);
+    setIsLowerResRetry(false);
+    setAnalysisAttempts(1);
 
-    try {
-      const selectedServiceObj = SERVICES.find(s => s.id === serviceId);
-      const serviceLabel = selectedServiceObj ? selectedServiceObj.name : serviceId;
+    const selectedServiceObj = SERVICES.find(s => s.id === serviceId);
+    const serviceLabel = selectedServiceObj ? selectedServiceObj.name : serviceId;
 
+    const executeAnalysis = async (currentImage: string, attempt: number) => {
       // 1. Send low-res thumbnail first for fast type pre-validation
-      const thumbnailBase64 = await createThumbnail(imageSrc, imageMime);
+      const thumbnailBase64 = await createThumbnail(currentImage, imageMime);
       
       const preCheckResponse = await fetch('/api/validate-form-type', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-api-key': localStorage.getItem('VITE_GEMINI_API_KEY') || ''
         },
         body: JSON.stringify({
           image: thumbnailBase64,
@@ -751,7 +867,7 @@ You must respond in the specified JSON schema.`;
           encouragementHi: 'कृपया चुनी गई सेवा का सत्यापन करें और मिलान करने वाला दस्तावेज़ या फ़ॉर्म अपलोड करें। यह संसाधनों को सुरक्षित करता है और त्वरित स्वीकृति सुनिश्चित करता है।'
         };
         setAnalysisResult(mockResult);
-        addToHistory(serviceId, imageSrc, imageMime, mockResult);
+        addToHistory(serviceId, currentImage, imageMime, mockResult);
         return;
       }
 
@@ -761,10 +877,11 @@ You must respond in the specified JSON schema.`;
       const response = await fetch('/api/analyze-form', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-api-key': localStorage.getItem('VITE_GEMINI_API_KEY') || ''
         },
         body: JSON.stringify({
-          image: imageSrc,
+          image: currentImage,
           mimeType: imageMime,
           serviceType: serviceLabel
         })
@@ -798,7 +915,7 @@ Follow these strict visual inspection rules:
 Ensure the final output is 100% compliant with the provided JSON response schema.`;
 
         const resultText = await generateContentClient(
-          imageSrc,
+          currentImage,
           imageMime,
           systemInstruction,
           `Analyze this uploaded document/form for the government service "${serviceLabel}". Please review it carefully, perform validation, redact sensitive credentials, and produce the detailed analysis.`,
@@ -825,10 +942,37 @@ Ensure the final output is 100% compliant with the provided JSON response schema
         }
       }
       setAnalysisResult(result);
-      addToHistory(serviceId, imageSrc, imageMime, result);
-    } catch (error: any) {
-      console.error('Analysis error:', error);
-      setErrorMsg(error.message || 'An error occurred while calling the document verification service.');
+      addToHistory(serviceId, currentImage, imageMime, result);
+    };
+
+    try {
+      // Attempt 1: High-res analysis
+      await executeAnalysis(imageSrc, 1);
+    } catch (firstError: any) {
+      console.warn('Initial high-res analysis failed. Attempting low-res compressed scan auto-retry...', firstError);
+      
+      // Update state for retry
+      setAnalysisAttempts(2);
+      setIsLowerResRetry(true);
+      setAnalysisStage('validating');
+
+      try {
+        // Compress image to small, low-bandwidth layout (max 650px, quality 0.5)
+        const compressedLowerRes = await compressImage(imageSrc, 650, 0.5, imageMime);
+        const lowerResSize = Math.round((compressedLowerRes.length * 0.75) / 1024);
+        setCompressedSizeKb(lowerResSize);
+        
+        // Re-execute
+        await executeAnalysis(compressedLowerRes, 2);
+        console.log('Auto-retry lower-resolution scan completed successfully.');
+      } catch (retryError: any) {
+        console.error('Both analysis attempts failed:', retryError);
+        setErrorMsg(
+          languageMode === 'hindi'
+            ? `उच्च और निम्न रिज़ॉल्यूशन दोनों स्कैन विफल रहे: ${retryError.message || firstError.message}`
+            : `Analysis failed after automatic retry. High-res error: ${firstError.message || 'Server timeout'}. Low-res error: ${retryError.message || 'API limit reached'}`
+        );
+      }
     } finally {
       setIsAnalyzing(false);
       setAnalysisStage('idle');
@@ -1196,7 +1340,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                   Smart Bharat Digital Platform
                 </span>
               </div>
-              <p className="text-xs text-accent font-medium mt-0.5">National Civic Document Completeness & Bilingual Self-Correction Portal</p>
+              <p className="text-xs text-accent font-medium mt-0.5">{t('National Civic Document Completeness & Bilingual Self-Correction Portal', 'राष्ट्रीय नागरिक दस्तावेज़ पूर्णता और द्विभाषी स्व-सुधार पोर्टल')}</p>
             </div>
           </div>
 
@@ -1377,7 +1521,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                       ))
                     ) : (
                       <div className="p-4 text-center text-xs text-accent italic">
-                        {languageMode === 'hindi' ? `"${serviceSearchQuery}" के लिए कोई सरकारी सेवा नहीं मिली` : `No government services found for "${serviceSearchQuery}"`}
+                        {t(`No government services found for "${serviceSearchQuery}"`, `"${serviceSearchQuery}" के लिए कोई सरकारी सेवा नहीं मिली`)}
                       </div>
                     )}
                   </div>
@@ -1398,6 +1542,26 @@ Ensure the final output is 100% compliant with the provided JSON response schema
             <p className="text-xs text-accent mb-4 leading-relaxed">
               {t('No government application form on hand? Select one of our curated verification scenarios below to render a highly realistic mock document on an HTML canvas instantly.', 'आपके पास सरकारी आवेदन पत्र नहीं है? तुरंत एक यथार्थवादी दस्तावेज़ रेंडर करने के लिए नीचे दिए गए परिदृश्यों में से एक का चयन करें।')}
             </p>
+
+            <div className="mb-4 p-3.5 bg-primary/[0.02] border border-primary/10 rounded-xl space-y-2">
+              <span className="text-[10px] font-bold text-primary uppercase tracking-wider block">
+                {t('⚡ INTERACTIVE LAB GUIDE / प्रयोगशाला गाइड', '⚡ INTERACTIVE LAB GUIDE / प्रयोगशाला गाइड')}
+              </span>
+              <ul className="text-[10.5px] text-accent space-y-1.5 list-disc pl-4 leading-relaxed text-left">
+                <li>
+                  <strong className="text-natural-dark font-semibold">{t('Zero Document Prep:', 'शून्य दस्तावेज़ तैयारी:')}</strong>{' '}
+                  {t('No real government forms or personal identity cards are required. Test the entire flow completely friction-free.', 'वास्तविक सरकारी फॉर्म या व्यक्तिगत पहचान पत्र की आवश्यकता नहीं है। बिना किसी परेशानी के पूरी प्रक्रिया का परीक्षण करें।')}
+                </li>
+                 <li>
+                   <strong className="text-natural-dark font-semibold">{t('Edge-Case Scenarios:', 'जटिल त्रुटि परीक्षण:')}</strong>{' '}
+                   {t('Experience how Gemini catches missing applicant signatures, exposed unmasked numbers, or wrong documents.', 'अनुभव करें कि कैसे जेमिनी गायब हस्ताक्षर, उजागर व्यक्तिगत संख्या या गलत दस्तावेजों का सटीक पता लगाता है।')}
+                 </li>
+                 <li>
+                   <strong className="text-natural-dark font-semibold">{t('How to Operate:', 'संचालन कैसे करें:')}</strong>{' '}
+                   {t('Click any scenario button below. The lab instantly draws a mock document on canvas, aligns the matching service, and triggers the tiered analysis.', 'नीचे दिए गए किसी भी परिदृश्य पर क्लिक करें। लैब तुरंत कैनवास पर दस्तावेज़ रेंडर करेगी, सेवा संरेखित करेगी और विश्लेषण शुरू करेगी।')}
+                 </li>
+              </ul>
+            </div>
  
             <div className="grid grid-cols-1 gap-2.5 max-h-[420px] overflow-y-auto pr-1">
               {/* Aadhaar Incomplete */}
@@ -1561,18 +1725,16 @@ Ensure the final output is 100% compliant with the provided JSON response schema
             <div className="flex items-center gap-2 mb-2">
               <Info className="w-5 h-5 text-primary" />
               <h3 className="text-md font-serif font-semibold text-primary">
-                {languageMode === 'hindi' ? 'कीबोर्ड शॉर्टकट्स' : 'Keyboard Shortcuts'}
+                {t('Keyboard Shortcuts', 'कीबोर्ड शॉर्टकट्स')}
               </h3>
             </div>
             <p className="text-xs text-accent mb-4">
-              {languageMode === 'hindi'
-                ? 'माउस के बिना तेजी से काम करने के लिए इन शॉर्टकट्स का उपयोग करें:'
-                : 'Accelerate your verification workflow with these hand-designed global shortcuts:'}
+              {t('Accelerate your verification workflow with these hand-designed global shortcuts:', 'माउस के बिना तेजी से काम करने के लिए इन शॉर्टकट्स का उपयोग करें:')}
             </p>
             <div className="space-y-2.5">
               <div className="flex items-center justify-between text-xs p-2 bg-natural-bg/50 border border-natural-border/60 rounded-xl">
                 <span className="font-semibold text-natural-dark">
-                  {languageMode === 'hindi' ? 'दस्तावेज़ विश्लेषण शुरू करें' : 'Verify Document'}
+                  {t('Verify Document', 'दस्तावेज़ विश्लेषण शुरू करें')}
                 </span>
                 <div className="flex items-center gap-1">
                   <kbd className="px-2 py-1 bg-white border border-natural-border/80 rounded-md shadow-2xs text-[10px] font-mono font-bold text-accent">Ctrl</kbd>
@@ -1583,7 +1745,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
 
               <div className="flex items-center justify-between text-xs p-2 bg-natural-bg/50 border border-natural-border/60 rounded-xl">
                 <span className="font-semibold text-natural-dark">
-                  {languageMode === 'hindi' ? 'फ़ाइल अपलोड करें' : 'Upload Document File'}
+                  {t('Upload Document File', 'फ़ाइल अपलोड करें')}
                 </span>
                 <div className="flex items-center gap-1">
                   <kbd className="px-2 py-1 bg-white border border-natural-border/80 rounded-md shadow-2xs text-[10px] font-mono font-bold text-accent">Ctrl</kbd>
@@ -1594,7 +1756,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
 
               <div className="flex items-center justify-between text-xs p-2 bg-natural-bg/50 border border-natural-border/60 rounded-xl">
                 <span className="font-semibold text-natural-dark">
-                  {languageMode === 'hindi' ? 'लाइव कैमरा शुरू/बंद करें' : 'Toggle Live Camera'}
+                  {t('Toggle Live Camera', 'लाइव कैमरा शुरू/बंद करें')}
                 </span>
                 <div className="flex items-center gap-1">
                   <kbd className="px-2 py-1 bg-white border border-natural-border/80 rounded-md shadow-2xs text-[10px] font-mono font-bold text-accent">Ctrl</kbd>
@@ -1611,7 +1773,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
               <div className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-primary" />
                 <h3 className="text-md font-serif font-semibold text-primary">
-                  {languageMode === 'hindi' ? 'सत्यापन इतिहास' : 'Verification History'}
+                  {t('Verification History', 'सत्यापन इतिहास')}
                 </h3>
               </div>
               {historyList.length > 0 && (
@@ -1619,28 +1781,24 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                   onClick={() => setHistoryList([])}
                   className="text-[11px] text-rose-700 hover:text-rose-800 font-semibold cursor-pointer transition-colors"
                 >
-                  {languageMode === 'hindi' ? 'सभी हटाएं' : 'Clear All'}
+                  {t('Clear All', 'सभी हटाएं')}
                 </button>
               )}
             </div>
             <p className="text-xs text-accent mb-4">
-              {languageMode === 'hindi'
-                ? 'इस सत्र में सत्यापित दस्तावेज़। पिछले परिणाम देखने या चर्चा करने के लिए किसी भी फ़ाइल पर क्लिक करें।'
-                : 'Bhasini-compliant cached documents from this session. Click any file to view analysis or start chat.'}
+              {t('Bhasini-compliant cached documents from this session. Click any file to view analysis or start chat.', 'इस सत्र में सत्यापित दस्तावेज़। पिछले परिणाम देखने या चर्चा करने के लिए किसी भी फ़ाइल पर क्लिक करें।')}
             </p>
 
             {historyList.length === 0 ? (
               <div className="border border-dashed border-natural-border/60 rounded-xl p-6 text-center text-xs text-accent italic">
-                {languageMode === 'hindi'
-                  ? 'कोई पिछला दस्तावेज़ इतिहास नहीं मिला।'
-                  : 'No documents analyzed in this session yet.'}
+                {t('No documents analyzed in this session yet.', 'कोई पिछला दस्तावेज़ इतिहास नहीं मिला।')}
               </div>
             ) : (
               <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
                 {historyList.map((item) => {
                   const serviceName = SERVICES.find(s => s.id === item.serviceId)?.name || item.serviceId;
                   const serviceNameHi = SERVICES.find(s => s.id === item.serviceId)?.nameHi || item.serviceId;
-                  const displayName = languageMode === 'hindi' ? serviceNameHi : serviceName;
+                  const displayName = t(serviceName, serviceNameHi);
                   const isComplete = item.analysisResult.documentStatus === 'COMPLETE';
                   const isAttention = item.analysisResult.documentStatus === 'NEEDS_ATTENTION';
 
@@ -1889,6 +2047,32 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                           ) : selectedService}
                         </strong>
                       </p>
+
+                      {/* Smart Auto-Compressor Statistics Panel */}
+                      {didCompress && originalSizeKb && compressedSizeKb && (
+                        <div className="mt-2.5 p-2.5 bg-emerald-500/[0.04] border border-emerald-500/10 rounded-xl text-left inline-block w-full max-w-md">
+                          <div className="flex items-center gap-1.5 text-[10px] text-emerald-800 font-bold mb-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span>{languageMode === 'hindi' ? 'स्मार्ट दस्तावेज़ कंप्रेसर सक्रिय' : 'Smart Document Compressor Active'}</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-[10px] text-accent">
+                            <div>
+                              <span className="block font-medium text-stone-400 text-[8.5px] uppercase tracking-wider">{languageMode === 'hindi' ? 'मूल आकार' : 'Original Size'}</span>
+                              <span className="font-mono text-natural-dark font-semibold">{originalSizeKb} KB</span>
+                            </div>
+                            <div>
+                              <span className="block font-medium text-stone-400 text-[8.5px] uppercase tracking-wider">{languageMode === 'hindi' ? 'कंप्रेस्ड आकार' : 'Compressed Size'}</span>
+                              <span className="font-mono text-emerald-700 font-bold">{compressedSizeKb} KB</span>
+                            </div>
+                            <div>
+                              <span className="block font-medium text-stone-400 text-[8.5px] uppercase tracking-wider">{languageMode === 'hindi' ? 'कुल बचत' : 'Size Reduction'}</span>
+                              <span className="font-mono text-emerald-700 font-bold">
+                                {Math.max(0, Math.round(((originalSizeKb - compressedSizeKb) / originalSizeKb) * 100))}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5 pt-1">
@@ -1952,6 +2136,20 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                   </p>
                 </div>
 
+                {isLowerResRetry && (
+                  <div className="max-w-md mx-auto p-3 bg-amber-500/[0.08] border border-amber-500/20 text-amber-800 rounded-xl flex items-center justify-center gap-2 text-xs font-medium animate-pulse">
+                    <span className="flex h-2 w-2 relative">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    </span>
+                    <span>
+                      {languageMode === 'hindi' 
+                        ? 'स्वचालित पुनः प्रयास: कम रिज़ॉल्यूशन संपीड़ित स्कैन सक्रिय (नेटवर्क/सर्वर टाइमआउट बैकअप)' 
+                        : 'Auto-Retry Active: Processing compressed low-resolution scan (API timeout backup)'}
+                    </span>
+                  </div>
+                )}
+
                 {/* Tiered Progress Pipeline Visualizer */}
                 <div className="max-w-md mx-auto grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                   <div className={`p-3 rounded-xl border text-left transition-all ${
@@ -2014,7 +2212,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                       transition={{ duration: 0.3 }}
                       className="text-xs text-primary font-medium text-center"
                     >
-                      {LOADING_MESSAGES[loadingMsgIdx]}
+                      {t(LOADING_MESSAGES[loadingMsgIdx].en, LOADING_MESSAGES[loadingMsgIdx].hi)}
                     </motion.p>
                   </AnimatePresence>
                 </div>
@@ -2022,24 +2220,59 @@ Ensure the final output is 100% compliant with the provided JSON response schema
             )}
 
             {/* Error Message Display */}
-            {errorMsg && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="bg-warning-bg border border-warning-border/30 text-warning-border rounded-2xl p-5 flex items-start gap-3 shadow-xs"
-                id="error-banner"
-              >
-                <AlertTriangle className="w-5 h-5 text-warning-border mt-0.5 flex-shrink-0" />
-                <div>
-                  <h4 className="font-serif font-bold text-sm">Verification Failed / सत्यापन त्रुटि</h4>
-                  <p className="text-xs text-[#D95D00] mt-1 font-medium">{errorMsg}</p>
-                  <p className="text-[11px] text-accent mt-2">
-                    Suggestion: If you uploaded a heavy custom image, try rotating or compressing it. You can also test instantly using our Preset Simulator on the left.
-                  </p>
-                </div>
-              </motion.div>
-            )}
+            {errorMsg && (() => {
+              const isAuthError = errorMsg && (
+                errorMsg.toLowerCase().includes('401') ||
+                errorMsg.toLowerCase().includes('403') ||
+                errorMsg.toLowerCase().includes('unauthenticated') ||
+                errorMsg.toLowerCase().includes('credentials') ||
+                errorMsg.toLowerCase().includes('api key') ||
+                errorMsg.toLowerCase().includes('key is not configured')
+              );
+              return (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className={`border rounded-2xl p-5 flex items-start gap-3 shadow-xs ${
+                    isAuthError
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : 'bg-warning-bg border-warning-border/30 text-warning-border'
+                  }`}
+                  id="error-banner"
+                >
+                  <AlertTriangle className={`w-5 h-5 mt-0.5 flex-shrink-0 ${isAuthError ? 'text-amber-600' : 'text-warning-border'}`} />
+                  <div className="space-y-3 flex-1">
+                    <h4 className="font-serif font-bold text-sm">
+                      {isAuthError 
+                        ? 'Gemini API Key Configuration Required / जेमिनी एपीआई की सेटअप आवश्यक' 
+                        : 'Verification Failed / सत्यापन त्रुटि'}
+                    </h4>
+                    
+                    <p className="text-xs text-[#D95D00] mt-1 font-medium leading-relaxed">
+                      {errorMsg}
+                    </p>
+
+                    {isAuthError ? (
+                      <div className="bg-white/80 border border-amber-200/55 rounded-xl p-4 space-y-2 text-stone-700 text-[11px] leading-relaxed">
+                        <span className="font-bold text-stone-900 block text-xs">🛠️ How to resolve this in Google AI Studio:</span>
+                        <ol className="list-decimal pl-4 space-y-1.5">
+                          <li>Click on the <strong>Settings</strong> (gear icon) on the top-right or left-hand panel of Google AI Studio.</li>
+                          <li>Open the <strong>Secrets</strong> or <strong>API Keys</strong> section.</li>
+                          <li>Add or select a valid <strong>GEMINI_API_KEY</strong> (a genuine key starts with <code className="bg-stone-100 px-1 py-0.5 rounded font-mono font-bold text-amber-700">AIzaSy</code>).</li>
+                          <li>Verify that there are no extra spaces or invalid characters in the value, then save.</li>
+                          <li>Once saved, reload the page or click <strong>Verify Document</strong> to process your document successfully!</li>
+                        </ol>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-accent mt-2">
+                        Suggestion: If you uploaded a heavy custom image, try rotating or compressing it. You can also test instantly using our Preset Simulator on the left.
+                      </p>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })()}
 
             {/* Real Gemini Analysis Report Screen with 6-Stage Project Workflow */}
             {analysisResult && !isAnalyzing && (
@@ -2175,25 +2408,32 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                       <div className="p-4 rounded-xl border border-natural-border bg-natural-bg/15 flex flex-col justify-between gap-4">
                         <div className="space-y-2">
                           <div className="text-[10px] font-bold text-accent uppercase tracking-wider font-mono">
-                            Scanned Document Specs
+                            {t('Scanned Document Specs', 'स्कैन किए गए दस्तावेज़ विनिर्देश')}
                           </div>
                           <div className="space-y-1.5 text-xs text-natural-dark">
                             <div className="flex justify-between border-b border-dashed border-natural-border/60 pb-1">
-                              <span className="text-accent">Target Service:</span>
-                              <strong className="font-semibold text-primary">{analysisResult.identifiedService || selectedService}</strong>
+                              <span className="text-accent">{t('Target Service:', 'लक्षित सेवा:')}</span>
+                              <strong className="font-semibold text-primary">
+                                {t(
+                                  analysisResult.identifiedServiceEn || analysisResult.identifiedService || selectedService,
+                                  SERVICES.find(s => s.name === (analysisResult.identifiedServiceEn || analysisResult.identifiedService) || s.id === selectedService)?.nameHi || analysisResult.identifiedServiceHi || analysisResult.identifiedService || selectedService
+                                )}
+                              </strong>
                             </div>
                             <div className="flex justify-between border-b border-dashed border-natural-border/60 pb-1">
-                              <span className="text-accent">Document Type Detected:</span>
-                              <strong className="font-semibold text-emerald-700">{analysisResult.documentType}</strong>
+                              <span className="text-accent">{t('Document Type Detected:', 'पहचाना गया दस्तावेज़:')}</span>
+                              <strong className="font-semibold text-emerald-700">
+                                {t(analysisResult.documentTypeEn || analysisResult.documentType, analysisResult.documentTypeHi || analysisResult.documentType)}
+                              </strong>
                             </div>
                             <div className="flex justify-between border-b border-dashed border-natural-border/60 pb-1">
-                              <span className="text-accent">Validation Status:</span>
+                              <span className="text-accent">{t('Validation Status:', 'सत्यापन स्थिति:')}</span>
                               <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 rounded font-mono uppercase">
-                                PASSED
+                                {t('PASSED', 'सत्यापित')}
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-accent">Ingestion Time:</span>
+                              <span className="text-accent">{t('Ingestion Time:', 'प्रवेश समय:')}</span>
                               <strong className="font-semibold font-mono">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} IST</strong>
                             </div>
                           </div>
@@ -2205,7 +2445,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                             className="w-full py-2 text-xs font-bold rounded-lg bg-white hover:bg-natural-bg text-natural-dark border border-natural-border/40 shadow-3xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                           >
                             <Search className="w-3.5 h-3.5 text-primary" />
-                            {languageMode === 'hindi' ? 'दस्तावेज़ छवि देखें' : 'Inspect Layout Image'}
+                            {t('Inspect Layout Image', 'दस्तावेज़ छवि देखें')}
                           </button>
                         </div>
                       </div>
@@ -2215,15 +2455,17 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                         <div className="space-y-2">
                           <div className="flex items-center gap-1.5 text-emerald-700 text-xs font-bold">
                             <ShieldCheck className="w-4.5 h-4.5 text-emerald-600" />
-                            {languageMode === 'hindi' ? 'भासिनी सुरक्षात्मक कवच' : 'Bhasini-Compliant Privacy'}
+                            {t('Bhasini-Compliant Privacy', 'भासिनी सुरक्षात्मक कवच')}
                           </div>
                           <p className="text-[11px] text-accent leading-relaxed">
-                            No unmasked raw ID numbers, signatures, or biometric fields are retained.
-                            This tool conforms to Indian Civic Service Privacy Guidelines to prevent identity leaks.
+                            {t(
+                              'No unmasked raw ID numbers, signatures, or biometric fields are retained. This tool conforms to Indian Civic Service Privacy Guidelines to prevent identity leaks.',
+                              'कोई भी अनमास्क की गई आईडी संख्या, हस्ताक्षर या बायोमेट्रिक विवरण सुरक्षित नहीं रखा जाता है। यह टूल गोपनीयता दिशा-निर्देशों का अनुपालन करता है।'
+                            )}
                           </p>
                         </div>
                         <div className="mt-4 p-2 bg-emerald-50 text-[10px] text-emerald-800 rounded-lg border border-emerald-100 font-mono text-center">
-                          🔒 Zero-Knowledge Local Pipeline Active
+                          {t('🔒 Zero-Knowledge Local Pipeline Active', '🔒 शून्य-ज्ञान सुरक्षित डेटा पाइपलाइन सक्रिय')}
                         </div>
                       </div>
                     </div>
@@ -2311,11 +2553,13 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                             </div>
                             <div className="flex-1 min-w-0 space-y-1">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="font-bold text-xs text-natural-dark truncate">{field.name}</span>
+                                <span className="font-bold text-xs text-natural-dark truncate">
+                                  {t(field.nameEn || field.name, field.nameHi || field.name)}
+                                </span>
                                 <div className="flex items-center gap-1.5 flex-shrink-0">
                                   {isEdited && (
                                     <span className="text-[9px] bg-primary text-white font-bold px-1 rounded">
-                                      Modified
+                                      {t('Modified', 'संपादित')}
                                     </span>
                                   )}
                                   <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded font-mono ${
@@ -2325,14 +2569,16 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                                       ? 'bg-amber-50 text-amber-700 border border-amber-100'
                                       : 'bg-rose-50 text-rose-700 border border-rose-100'
                                   }`}>
-                                    {field.status}
+                                    {field.status === 'FILLED' ? t('FILLED', 'भरा हुआ') : field.status === 'MISSING' ? t('MISSING', 'लापता') : t('INCORRECT', 'त्रुटिपूर्ण')}
                                   </span>
                                 </div>
                               </div>
                               <p className="text-xs text-natural-dark bg-white/60 p-1.5 rounded border border-natural-border/30 font-mono text-[11px] truncate">
-                                {currentValue || <span className="text-stone-400 italic">No value</span>}
+                                {currentValue || <span className="text-stone-400 italic">{t('No value', 'कोई मान नहीं')}</span>}
                               </p>
-                              <p className="text-[10px] text-accent leading-normal font-sans italic">{field.details}</p>
+                              <p className="text-[10px] text-accent leading-normal font-sans italic">
+                                {t(field.detailsEn || field.details, field.detailsHi || field.details)}
+                              </p>
                             </div>
                           </div>
                         );
@@ -2373,7 +2619,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                       <div className="space-y-3.5">
                         <h5 className="text-xs font-serif font-bold text-natural-dark flex items-center gap-1.5">
                           <Sparkles className="w-3.5 h-3.5 text-primary" />
-                          {languageMode === 'hindi' ? 'एआई सरलीकृत सरकारी नियम व कदम' : 'AI-Simplified Correction Directives'}
+                          {t('AI-Simplified Correction Directives', 'एआई सरलीकृत सरकारी नियम व कदम')}
                         </h5>
                         <div className="space-y-3">
                           {analysisResult.requiredSteps.map((step) => (
@@ -2383,7 +2629,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                                   <span className="w-5 h-5 bg-primary text-white font-mono font-bold text-[10px] rounded flex items-center justify-center">
                                     {step.stepNumber}
                                   </span>
-                                  <span className="text-xs font-bold text-natural-dark">{languageMode === 'hindi' ? step.titleHi : step.titleEn}</span>
+                                  <span className="text-xs font-bold text-natural-dark">{t(step.titleEn, step.titleHi)}</span>
                                 </div>
                                 
                                 {/* TTS Voice Players */}
@@ -2411,7 +2657,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                                 </div>
                               </div>
                               <p className="text-xs text-accent leading-relaxed">
-                                {languageMode === 'hindi' ? step.descriptionHi : step.descriptionEn}
+                                {t(step.descriptionEn, step.descriptionHi)}
                               </p>
                             </div>
                           ))}
@@ -2450,7 +2696,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                         </div>
                       </div>
                       <p className="text-xs text-natural-dark italic leading-relaxed font-serif">
-                        "{languageMode === 'hindi' ? analysisResult.encouragementHi : analysisResult.encouragementEn}"
+                        "{t(analysisResult.encouragementEn, analysisResult.encouragementHi)}"
                       </p>
                     </div>
                   </motion.div>
@@ -2558,25 +2804,27 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                     {/* Sensitive Masking Logs */}
                     <div>
                       <div className="text-[11px] font-bold text-natural-dark mb-2 uppercase tracking-wider font-mono">
-                        Security Notice: Redacted Identifiers Log
+                        {t('Security Notice: Redacted Identifiers Log', 'सुरक्षा सूचना: संपादित पहचानकर्ता लॉग')}
                       </div>
                       {analysisResult.redactedData && analysisResult.redactedData.length > 0 ? (
                         <div className="space-y-2 bg-[#2D2D24] text-slate-100 p-3.5 rounded-xl border border-[#3D3D32]">
                           {analysisResult.redactedData.map((red, idx) => (
                             <div key={idx} className="flex items-center justify-between text-xs font-mono py-1.5 border-b border-white/5 last:border-0">
-                              <span className="text-slate-400">{red.type}</span>
+                              <span className="text-slate-400">{t(red.typeEn || red.type, red.typeHi || red.type)}</span>
                               <div className="text-right">
                                 <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-450 px-2 py-0.5 rounded font-bold text-[11px]">
                                   {red.originalDetected}
                                 </span>
-                                <div className="text-[9px] text-slate-400 mt-0.5">{red.actionTaken}</div>
+                                <div className="text-[9px] text-slate-400 mt-0.5">
+                                  {t(red.actionTakenEn || red.actionTaken, red.actionTakenHi || red.actionTaken)}
+                                </div>
                               </div>
                             </div>
                           ))}
                         </div>
                       ) : (
                         <div className="text-xs text-stone-500 italic text-center p-3.5 bg-natural-bg/20 rounded-xl border border-natural-border/30">
-                          No sensitive ID credentials detected in raw text layout. Privacy guard inactive.
+                          {t('No sensitive ID credentials detected in raw text layout. Privacy guard inactive.', 'कच्चे पाठ लेआउट में कोई संवेदनशील आईडी क्रेडेंशियल नहीं मिले। गोपनीयता गार्ड निष्क्रिय।')}
                         </div>
                       )}
                     </div>
@@ -2626,7 +2874,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                             className="w-full py-2.5 bg-primary hover:bg-primary-hover text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                           >
                             <Download className="w-4 h-4" />
-                            {languageMode === 'hindi' ? 'सुधार रिपोर्ट डाउनलोड करें (PDF)' : 'Download PDF Correction Report'}
+                            {t('Download PDF Correction Report', 'सुधार रिपोर्ट डाउनलोड करें (PDF)')}
                           </button>
 
                           <button
@@ -2645,7 +2893,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                             className="w-full py-2.5 bg-white hover:bg-natural-bg text-natural-dark border border-natural-border text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                           >
                             <FileDown className="w-4 h-4 text-emerald-600" />
-                            Export Corrected Form (JSON)
+                            {t('Export Corrected Form (JSON)', 'सुधारित फ़ॉर्म निर्यात करें (JSON)')}
                           </button>
                         </div>
                       </div>
@@ -2785,7 +3033,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                         {/* Submit feedback and reinforce model */}
                         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-natural-border/60">
                           <div className="text-xs text-accent">
-                            Local Model Confidence Level: <strong className="font-semibold text-primary font-mono">{systemAccuracy.toFixed(1)}%</strong>
+                            {t('Local Model Confidence Level: ', 'स्थानीय मॉडल विश्वास स्तर: ')}<strong className="font-semibold text-primary font-mono">{systemAccuracy.toFixed(1)}%</strong>
                           </div>
                           
                           <button
@@ -2800,7 +3048,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                                 : 'bg-primary hover:bg-primary-hover text-white'
                             }`}
                           >
-                            {isFeedbackSubmitted ? '✓ Feedback Submitted Successfully!' : '🚀 Submit Feedback & Train Model'}
+                            {isFeedbackSubmitted ? t('✓ Feedback Submitted Successfully!', '✓ फीडबैक सफलतापूर्वक जमा किया गया!') : t('🚀 Submit Feedback & Train Model', '🚀 फीडबैक भेजें और मॉडल को प्रशिक्षित करें')}
                           </button>
                         </div>
 
@@ -2810,9 +3058,9 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                             animate={{ opacity: 1, scale: 1 }}
                             className="bg-emerald-50 border border-emerald-200 text-emerald-900 p-3.5 rounded-xl text-center text-xs space-y-1"
                           >
-                            <p className="font-bold">🎉 RLHF Optimization Complete / एआई संरेखण सफल</p>
+                            <p className="font-bold">🎉 {t('RLHF Optimization Complete / AI Alignment Successful', 'एआई संरेखण सफल / आरएलएचएफ अनुकूलन पूर्ण')}</p>
                             <p className="text-[11px] text-emerald-800">
-                              Gradient descent optimization simulated! Your corrections have been saved locally to refine the layout understanding. System confidence has been adjusted to <strong>{(systemAccuracy).toFixed(1)}%</strong>.
+                              {t('Gradient descent optimization simulated! Your corrections have been saved locally to refine the layout understanding. System confidence has been adjusted to ', 'ग्रेडिएंट डिसेंट अनुकूलन सिम्युलेट किया गया! लेआउट समझ को बेहतर बनाने के लिए आपके सुधारों को स्थानीय रूप से सहेजा गया है। सिस्टम का विश्वास स्तर ')}<strong>{(systemAccuracy).toFixed(1)}%</strong>{t(' .', ' पर समायोजित किया गया है।')}
                             </p>
                           </motion.div>
                         )}
@@ -2826,10 +3074,10 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                           <MessageSquare className="w-4 h-4 text-primary" />
                           <div>
                             <h5 className="text-xs font-serif font-bold text-natural-dark">
-                              Interactive Q&A Assistant / दस्तावेज़ सहायक
+                              {t('Interactive Q&A Assistant / Document Assistant', 'इंटरएक्टिव प्रश्नोत्तर सहायक / दस्तावेज़ सहायक')}
                             </h5>
                             <p className="text-[10px] text-accent">
-                              Ask specific questions about regulations or documents required for this form.
+                              {t('Ask specific questions about regulations or documents required for this form.', 'इस फ़ॉर्म के लिए आवश्यक नियमों या दस्तावेज़ों के बारे में विशिष्ट प्रश्न पूछें।')}
                             </p>
                           </div>
                         </div>
@@ -2843,20 +3091,20 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                         {chatMessages.length === 0 ? (
                           <div className="my-auto text-center p-2 text-xs text-accent italic space-y-2">
                             <p>
-                              Try asking: "Where should I sign?" or "What documents can I use as Age Proof?"
+                              {t('Try asking: "Where should I sign?" or "What documents can I use as Age Proof?"', 'पूछने का प्रयास करें: "मुझे कहाँ हस्ताक्षर करने चाहिए?" या "आयु प्रमाण के रूप में मैं किन दस्तावेज़ों का उपयोग कर सकता हूँ?"')}
                             </p>
                             <div className="flex flex-wrap items-center justify-center gap-1.5">
                               <button
-                                onClick={() => setChatInput('What is missing in this document and how do I fix it?')}
+                                onClick={() => setChatInput(t('What is missing in this document and how do I fix it?', 'इस दस्तावेज़ में क्या कमी है और मैं इसे कैसे ठीक करूँ?'))}
                                 className="text-[10px] bg-white hover:bg-natural-bg text-primary border border-natural-border px-2 py-0.5 rounded-full transition-colors cursor-pointer"
                               >
-                                💡 What is missing?
+                                💡 {t('What is missing?', 'क्या कमी है?')}
                               </button>
                               <button
-                                onClick={() => setChatInput('Which age proofs are accepted for this form?')}
+                                onClick={() => setChatInput(t('Which age proofs are accepted for this form?', 'इस फ़ॉर्म के लिए कौन से आयु प्रमाण स्वीकार किए जाते हैं?'))}
                                 className="text-[10px] bg-white hover:bg-natural-bg text-primary border border-natural-border px-2 py-0.5 rounded-full transition-colors cursor-pointer"
                               >
-                                💡 Acceptable Proof?
+                                💡 {t('Acceptable Proof?', 'स्वीकार्य प्रमाण?')}
                               </button>
                             </div>
                           </div>
@@ -2886,7 +3134,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                           <div className="flex justify-start">
                             <div className="bg-white text-natural-dark border border-natural-border rounded-xl rounded-tl-none px-3 py-2 text-[11px] shadow-3xs flex items-center gap-1.5">
                               <RefreshCw className="w-3 h-3 text-primary animate-spin" />
-                              <span className="text-accent italic">AI is thinking...</span>
+                              <span className="text-accent italic">{t('AI is thinking...', 'एआई सोच रहा है...')}</span>
                             </div>
                           </div>
                         )}
@@ -2911,7 +3159,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
                           type="text"
                           value={chatInput}
                           onChange={(e) => setChatInput(e.target.value)}
-                          placeholder="Ask anything about this document..."
+                          placeholder={t('Ask anything about this document...', 'इस दस्तावेज़ के बारे में कुछ भी पूछें...')}
                           disabled={isSendingChat}
                           className="flex-1 bg-white border border-natural-border rounded-lg px-2.5 py-1.5 text-xs text-natural-dark focus:outline-hidden focus:ring-1 focus:ring-primary focus:border-primary disabled:opacity-50 font-sans"
                         />
