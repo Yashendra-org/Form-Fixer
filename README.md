@@ -7,7 +7,7 @@
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+**Prere
 
 
 1. Install dependencies:
