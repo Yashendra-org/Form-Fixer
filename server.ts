@@ -395,7 +395,7 @@ Ensure the final output is 100% compliant with the provided JSON response schema
   // API Endpoint: Document Q&A Chat
   app.post(["/api/chat-document", "/api/chat-document/"], async (req: express.Request, res: express.Response): Promise<void> => {
     try {
-      const { image, mimeType, serviceType, message, history } = req.body;
+      const { image, mimeType, serviceType, message, history, languageMode = "english" } = req.body;
 
       if (!image || !mimeType || !serviceType || !message) {
         res.status(400).json({ error: "Missing required fields: image, mimeType, serviceType, or message" });
@@ -416,12 +416,26 @@ Ensure the final output is 100% compliant with the provided JSON response schema
 The user is asking questions about an uploaded form/document for the government service "${serviceType}".
 You must help them correct their document, explain civic rules (like UIDAI Aadhaar guidelines, RTO vehicle classes, Ministry of External Affairs passport requirements), and guide them through filling forms, signature requirements, official seals, or proof documents.
 
-When answering:
+The user's current selected app language mode is: "${languageMode}".
+
+Linguistic / Dialect & Code-switching Rules:
+1. Highly Responsive to Dialect/Code-Switching: Indian citizens commonly speak in a fluid mixture of English and Hindi (Hinglish code-switching) or regional dialects. You must recognize and dynamically adapt to the user's specific language mix and style.
+2. Mirror the User's Tone & Dialect:
+   - If the user asks a question in Hinglish written in Latin script (e.g., "Aadhaar update ke liye kya documents chahiye?", "sign kahan karna hai?"), you MUST respond in the EXACT same casual, clear, and helpful Hinglish using Latin script (e.g., "Aadhaar card update karne ke liye aap apna Proof of Identity aur Proof of Address submit kar sakte hain...", "Aapko form ke right-bottom box me sign karna hai...").
+   - If the user asks in Hindi using Devanagari script (e.g., "मुझे कहाँ हस्ताक्षर करना है?"), respond in Devanagari Hindi.
+   - If the user asks in clear English, respond in clear English.
+   - If the user mixes English with Hindi or Hinglish, mirror that specific proportion and style of code-switching precisely so they feel comfortable and understood.
+3. App Language Mode Preference:
+   - If languageMode is "english", default to English but still remain highly open to mirroring Hinglish if the user's prompt uses Hinglish.
+   - If languageMode is "hindi", lean heavily towards Devanagari Hindi.
+   - If languageMode is "bilingual", use a balanced blend of English and Hindi.
+4. Indian Civic Vocabulary: Integrate natural Indian civic terminology where appropriate (e.g., 'Gazetted Officer', 'Tehsildar', 'Challan', 'Xerox/Photocopy', 'Form fill-up', 'Aadhaar Center/Kendra', 'RTO Office').
+
+General response guidelines:
 1. Always maintain a highly supportive, friendly, and empowering tone.
-2. Answer in the same language the user asks (e.g., if they ask in Hindi/Hinglish, answer in Hindi/Hinglish; if English, answer in English).
-3. Do not output any real sensitive numbers from the document (like 12-digit Aadhaar numbers or 10-char PAN numbers). Mask them if you refer to them.
-4. Give specific, precise advice based on the selected service guidelines. If they ask where to sign, point them to the designated signature boxes.
-5. Keep answers highly readable, scannable, and clear. Use standard Markdown for bullet points and bolding.`;
+2. Do not output any real sensitive numbers from the document (like 12-digit Aadhaar numbers or 10-char PAN numbers). Mask them if you refer to them.
+3. Give specific, precise advice based on the selected service guidelines. If they ask where to sign, point them to the designated signature boxes.
+4. Keep answers highly readable, scannable, and clear. Use standard Markdown for bullet points and bolding.`;
 
       const responseText = await generateContentServer({
         image,
