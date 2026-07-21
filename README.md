@@ -1,179 +1,169 @@
-# Form-Fixer: Smart Bharat Digital Platform
-### *National Civic Document Completeness & Bilingual Self-Correction Portal*
+<div align="center">
 
-Form-Fixer is a privacy-first, high-performance web application designed to empower citizens of India/Bharat to successfully navigate, fill, and self-correct government service application forms. Utilizing an advanced client-side vision workspace and a tiered validation pipeline, Form-Fixer guides users in real-time to identify missing signatures, unfilled fields, or incorrect formats before submission, significantly reducing form rejection rates at civic centers (e.g., Aadhaar Kendras, RTO offices).
+<img src="src/assets/images/form_fixer_logo_1784189901251.jpg" width="100%" alt="Form-Fixer Banner"/>
+
+</div>
 
 ---
 
-## 🗺️ System Workflow Architecture (3D Projection)
+## 📌 Overview
 
-Below is an isometric visual diagram mapping how a citizen's document travels through the validation pipeline, from capture to final multi-turn self-correction.
+**Form-Fixer** is a privacy-first, high-performance national document completeness & bilingual self-correction portal designed to empower citizens of India/Bharat to successfully navigate, fill, and self-correct government service application forms.
 
-```text
-               +----------------------------------------+
-               |  Citizen Uploads / Captures Form       |
-               |  (JPEG / PNG / WEBP, e.g., Aadhaar/PAN)|
-               +-------------------+--------------------+
-                                   |
-                                   v
-+==================================+===================================+
-|               STAGE 1: CLIENT-SIDE WORKSPACE                         |
-|                                                                      |
-|     +-------------------------+      +-------------------------+     |
-|     |  Canvas Auto-Crop       | ---> |  Smart Auto-Compressor  |     |
-|     |  & Deskew Grid          |      |  (Resolution optimizer) |     |
-|     +------------+------------+      +------------+------------+     |
-|                  |                                |                  |
-|                  +----------------+---------------+                  |
-|                                   |                                  |
-+==================================+===================================+
-                                   | (Optimized Base64 stream)
-                                   v
-+==================================+===================================+
-|               STAGE 2: BACKEND PIPELINE & PRIVACY                    |
-|                                                                      |
-|                  +--------------------------------+                  |
-|                  | Express Node.js Server Gateway |                  |
-|                  +----------------+---------------+                  |
-|                                   |                                  |
-|                                   v                                  |
-|                  +--------------------------------+                  |
-|                  |  Privacy Guard Redactor        |                  |
-|                  |  (Filters Aadhaar/PAN / IDs)   |                  |
-|                  +----------------+---------------+                  |
-|                                   |                                  |
-|                                   v                                  |
-|                  +--------------------------------+                  |
-|                  |  Gemini Multi-Modal Vision API |                  |
-|                  |  (OCR & Form Layout Analysis)  |                  |
-|                  +--------------------------------+                  |
-+==================================+===================================+
-                                   |
-                                   v
-+==================================+===================================+
-|               STAGE 3: CITIZEN INTERACTION INTERFACE                  |
-|                                                                      |
-|        /=======================================================\     |
-|       ||   [1] Interactive Magnifier & Highlighter Workspace  ||     |
-|       ||       * Green Highlights: FILLED Field               ||     |
-|       ||       * Orange Highlights: MISSING Signature/Block   ||     |
-|       ||       * Red Highlights: INCORRECT Format             ||     |
-|        \=======================================================/     |
-|                                   |                                  |
-|                                   v                                  |
-|        /=======================================================\     |
-|       ||   [2] Bilingual / Hinglish Q&A Chat Companion        ||     |
-|       ||       * Custom voice playbacks in EN & HI           ||     |
-|       ||       * Answers UIDAI / RTO document policies       ||     |
-|        \=======================================================/     |
-|                                   |                                  |
-|                                   v                                  |
-|        /=======================================================\     |
-|       ||   [3] Local RLHF Neural Alignment Feedback Loop      ||     |
-|       ||       * Citizen logs feedback rating on layout accuracy||     |
-|        \=======================================================/     |
-+======================================================================++
+Instead of facing high rejection rates at civic centers (e.g., Aadhaar Kendras, RTO offices) due to missing signatures, blank fields, or incorrect formatting, citizens can scan their document and immediately receive real-time, step-by-step guidance.
+
+The system combines four layers of document optimization and validation:
+- **Client-Side Workspace** — provides contrast edge scanning, rotational deskewing, crop reticles, and multi-pass resolution optimization.
+- **AI-Powered Analysis** — automatically identifies missing signatures, incomplete blocks, and incorrect formats.
+- **Smart Local Simulation (Offline Fallback)** — guarantees 100% up-time and flawless testing by automatically initiating high-fidelity offline document analysis when Gemini API limits or quota blocks (429 errors) are reached.
+- **⚡ Batch Quick-Fix** — allows citizens to instantly auto-correct all missing or incorrect fields with standardized compliance formats tailored specifically for standard Indian national IDs and certificates.
+
+---
+
+## ✨ Features
+
+### 🔌 Client-Side Workspace & Imaging Engine
+| | Feature | Details |
+|---|---|---|
+| 📐 | Contrast Edge Scan | Canvas analyzes pixel luminance to detect document boundaries against backgrounds |
+| 🔄 | Rotational Deskew | Quick 90° rotation controls to align landscape/portrait images instantly |
+| ✂️ | Multi-Aspect Cropping | Snaps selection to standard card sizes (Aadhaar, PAN, Voter ID) or standard A4 pages |
+| 📉 | Smart Compression | Multi-pass compression & resolution optimizer ensures files fit under API size limits |
+
+### 🧠 Backend Gateway & AI Analysis
+| | Feature | Details |
+|---|---|---|
+| 🛡️ | Privacy Guard Redactor | Redacts Aadhaar, PAN, and contact numbers from OCR streams before any AI processing |
+| 💬 | Bilingual Companion | Contextual Q&A helper supporting English, Hindi, and dynamic Hinglish code-switching |
+| 🗣️ | Dual-Language Speech | Web Speech API text-to-speech voice playbacks in both English and Hindi accents |
+| ⚖️ | 6-Stage Pipeline | Tracks user document status seamlessly from Upload, Crop, Redact, Scan, Action, to Submit |
+
+### ⚡ Batch Quick-Fix & Smart Simulation (New!)
+| | Feature | Details |
+|---|---|---|
+| ⚡ | Batch Auto-Correction | Click-to-fix all MISSING or INCORRECT checklist fields with standardized formatting |
+| 🤖 | Document-Specific Presets | Custom rule-based correction templates for Aadhaar Cards, PAN Cards, and Driving Licenses |
+| 💡 | Smart Local Simulation | Zero-downtime fallback to high-fidelity simulated models when Gemini API returns 429 quota errors |
+| 💬 | Offline Chat Responder | Intelligent, context-aware rule-based conversation engine for offline or rate-limited sessions |
+
+---
+
+## 🧱 System Architecture
+
+```mermaid
+flowchart TD
+    A[Citizen Uploads/Captures Form] --> B[Interactive Auto-Crop & Deskew]
+    B --> C[Resolution Optimizer / Compressor]
+    C --> D[Express Server Gateway]
+    
+    D --> E{API Check}
+    E -->|API Active| F[Privacy Guard Redactor]
+    E -->|429 Rate Limit| G[Smart Local Simulation Mode]
+    
+    F --> H[Gemini Multi-Modal API]
+    H --> I[Bilingual Multi-Stage Analysis]
+    G --> I
+    
+    I --> J[#analysis-results-panel]
+    J --> K[Bilingual Chat & TTS Audio]
+    J --> L[⚡ Quick-Fix All Errors]
+    
+    L -->|Batch Form Correction| M[Standardized Validated Output]
 ```
 
----
+### Components
 
-## 🛠️ Technology Stack
-
-| Layer | Technologies | Role / Utility |
-| :--- | :--- | :--- |
-| **Frontend UI** | React 18+, TypeScript, Tailwind CSS, Framer Motion | High-fidelity interactive layout, fluid route transitions, and responsive responsive visual density. |
-| **Client Workspace** | HTML5 Canvas Engine, Web Speech API (TTS) | Coordinates image rotations, high-contrast document boundary scanning, manual crop reticles, and multi-dialect text-to-speech feedback. |
-| **Backend API Gateway** | Express v4, Node.js, esbuild, tsx | API proxying for security key masking, static bundle routing, and server-side production execution. |
-| **AI Vision & NLP** | Google Gemini 2.5 Flash / Pro (via `@google/genai` SDK) | Dual-stage OCR extraction, logical checklist evaluation, and conversational code-switching. |
-| **Persistence & Caching** | HTML5 LocalStorage | Maintains offline document verification logs, session chat buffers, and user configuration preferences. |
+- **Client Workspace** (`src/components/AutoCropModal.tsx`) — handles canvas-based boundary detection, crop overlays, rotational deskewing, and image optimizations.
+- **Core State Orchestrator** (`src/App.tsx`) — manages the full 6-stage lifecycle, the smart local fallbacks, the batch auto-correction, and the main interactive dashboard.
+- **AI Vision Client** (`src/geminiClient.ts`) — connects to the server gateway to run multi-modal form checklist validation.
+- **Express Server Gateway** (`server.ts`) — handles proxying API requests safely, securing keys, and executing the production bundle.
 
 ---
 
-## 📂 Project Folder Structure
+## 📂 Project Structure
 
-```text
-.
-├── .env.example                # Blueprint for local secret credentials
-├── .gitignore                  # Prevents caching of node_modules and builds
-├── index.html                  # Core single-page entry point
-├── metadata.json               # Frame permissions and major applet metadata
-├── package.json                # Project dependency manifest and compilation scripts
+```
+Form-Fixer/
 ├── server.ts                   # Full-Stack Express Server (API Proxy + Vite Middleware)
+├── package.json                # Project dependency manifest and compilation scripts
 ├── tsconfig.json               # TypeScript compiler rules
 ├── vite.config.ts              # Vite asset pipelines and Tailwind integrations
+├── metadata.json               # Frame permissions and major applet metadata
+├── .env.example                # Blueprint for local secret credentials
+├── .gitignore                  # Prevents caching of node_modules and builds
+│
 └── src/                        # Client-Side Codebase
     ├── main.tsx                # Client bootstrapper
     ├── index.css               # Global Tailwind CSS directives and font face bindings
     ├── geminiClient.ts         # High-level server-side LLM connection client configurations
     ├── App.tsx                 # Core parent React component containing state routing
+    │
     ├── assets/                 # Brand design files
     │   └── images/
     │       └── form_fixer_logo_1784189901251.jpg
+    │
     └── components/             # Reusable UI Modules
         └── AutoCropModal.tsx   # Canvas-based Auto-Cropping & Boundary Alignment Workspace
 ```
 
 ---
 
-## 🌟 Core Features & Functional Details
+## 🛠️ Technology Stack
 
-### 1. **Intelligent Canvas-Based Auto-Crop & Deskew**
-* **Contrast Edge Scanning:** When an image is loaded, a background canvas analyzes pixel luminance, scanning inward to detect document boundaries (e.g., paper borders against a darker desk).
-* **Flexible Aspect Ratio Snapping:** Quickly lock the crop boundaries to standard aspect ratios:
-  * **Card Ratio (85:54):** Perfect for Aadhaar Cards, Pan Cards, and Voter IDs.
-  * **A4 Portrait:** Fits standard government certificate forms.
-  * **Freeform:** Custom sizing for any irregular scan.
-* **Interactive Reticle Handles:** 4-corner draggable handles allowing fine manual crop adjustments.
-* **Rotational Deskewing:** Quick 90° rotational alignment to correct sideways or inverted uploads instantly.
+<table>
+<tr><td valign="top"><b>Frontend UI</b></td><td>
 
-### 2. **Bhasini-Compliant Privacy Redaction**
-* Real-time automated parser identifies high-risk identifiers (such as 12-digit Aadhaar numbers, 10-character PAN identifiers, and mobile phone numbers).
-* Obfuscates sensitive strings directly from text layout coordinates, ensuring raw client-sensitive records are never displayed or stored.
+- React 18+, TypeScript, Tailwind CSS, Framer Motion
+- Fluid layouts, 3D card tilts, micro-animations, and responsive density metrics
 
-### 3. **Bilingual & Hinglish Code-Switching AI Companion**
-* **Dialect-Adaptive Intelligence:** If typed in English, responds in English. If typed in Hindi, responds in Devanagari Hindi. If typed in **Hinglish** (e.g., *"Aadhaar center kahan hai?"*), the assistant dynamically mirrors the Hinglish blend (e.g., *"Aapka nikattam Aadhaar Center check karne ke liye..."*).
-* **Dual-Language Speech Playback:** Reads out loud answers in either Indian English or Hindi accents, resolving device synthesis fallbacks gracefully.
+</td></tr>
+<tr><td valign="top"><b>Client Workspace</b></td><td>
 
-### 4. **Pre-Validation & Dynamic Mock Form Generator**
-* To facilitate immediate testing, Form-Fixer includes a built-in pre-populated Mock Form generator.
-* Simulates incomplete Aadhaar forms, missing signature voter cards, or wrong document types to showcase the tiered validation pipeline in actions.
+- HTML5 Canvas Engine for high-speed crop reticle overlays and pixels analyzes
+- Web Speech API (TTS) for high-fidelity speech playbacks in English and Hindi
+
+</td></tr>
+<tr><td valign="top"><b>Backend Server</b></td><td>
+
+- Node.js, Express, tsx (dev-runner), esbuild
+- Secure proxy routing for Gemini multi-modal scanning API key protection
+
+</td></tr>
+<tr><td valign="top"><b>AI Engine & NLP</b></td><td>
+
+- Google Gemini 2.5 Flash / Pro via the modern `@google/genai` SDK
+- Multilingual OCR, structural checklist classification, and dynamic Hinglish code-switching
+
+</td></tr>
+</table>
 
 ---
 
-## 🚀 Getting Started
+## ⚙️ Installation & Setup
 
-### 📦 Prerequisites
-* **Node.js** (v18.0.0 or higher recommended)
-* **npm** (v9.0.0 or higher)
+### 🔹 Clone & Setup
 
-### ⚙️ Environment Configuration
-Create a `.env` file in the root directory to authorize your LLM services:
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Configure environment variables
+# Create a .env file in the project root:
+# GEMINI_API_KEY=your_gemini_api_key_here
+
+# 3. Run in Development Mode
+npm run dev
 ```
 
-### 💻 Installation
-1. Install project dependencies:
-   ```bash
-   npm install
-   ```
+### 🔹 Production Compilation
 
-2. Run in Development Mode:
-   ```bash
-   npm run dev
-   ```
-   *Serves the hot-reloading full-stack application on http://localhost:3000*
+```bash
+# Compile and bundle for production
+npm run build
 
-3. Compile and Bundle for Production:
-   ```bash
-   npm run build
-   ```
-   *Vite bundles client-side assets while esbuild packages the backend typescript server into a standalone optimized CommonJS module (`dist/server.cjs`).*
-
-4. Run the Production Build:
-   ```bash
-   npm start
-   ```
+# Start the production bundle
+npm start
+```
 
 ---
 
@@ -187,5 +177,12 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 ---
 
-## 🔒 Security & Citizen Privacy
-Form-Fixer is designed around a **Zero-Knowledge Privacy Policy**. All core image crops, rotations, and pre-checks happen strictly inside the local browser container. Any text coordinates forwarded for Gemini validation are pre-redacted of private citizen ID numbers.
+## 📜 License
+
+This project is licensed under the **MIT License**.
+
+---
+
+<div align="center">
+<h3>🔥 "Form-Fixer – Elevating Indian Digital Governance."</h3>
+</div>
